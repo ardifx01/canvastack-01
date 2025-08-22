@@ -6,12 +6,6 @@ use Incodiy\Codiy\Models\Admin\System\DynamicTables;
 use Incodiy\Codiy\Controllers\Core\Craft\Includes\Privileges;
 use Yajra\DataTables\DataTables as DataTable;
 
-// Enhanced Phase 2: New Architecture Imports
-use Incodiy\Codiy\Library\Components\Table\Contracts\DataProviderInterface;
-use Incodiy\Codiy\Library\Components\Table\Providers\DataProvider;
-use Incodiy\Codiy\Library\Components\Table\Registry\ModelRegistry;
-use Incodiy\Codiy\Library\Components\Table\Adapters\DataTablesAdapter;
-
 /**
  * Datatables processor for handling table operations
  * 
@@ -27,12 +21,6 @@ use Incodiy\Codiy\Library\Components\Table\Adapters\DataTablesAdapter;
 class Datatables
 {
     use Privileges;
-    // Phase 1 Traits (wrappers)
-    use \Incodiy\Codiy\Library\Components\Table\Craft\Traits\ModelInitializerTrait;
-    use \Incodiy\Codiy\Library\Components\Table\Craft\Traits\FilterHandlerTrait;
-    use \Incodiy\Codiy\Library\Components\Table\Craft\Traits\PrivilegeHandlerTrait;
-    use \Incodiy\Codiy\Library\Components\Table\Craft\Traits\OrderingHandlerTrait;
-    use \Incodiy\Codiy\Library\Components\Table\Craft\Traits\RelationshipHandlerTrait;
 
     /**
      * Filter model array
@@ -45,135 +33,43 @@ class Datatables
     public $filter_datatables = [];
 
     /**
-     * Enhanced Phase 2: New Architecture Components
+     * Valid image extensions
      */
-    
-    /**
-     * Model registry for dynamic model resolution
-     * 
-     * @var ModelRegistry
-     */
-    private ModelRegistry $modelRegistry;
+    private const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif'];
 
     /**
-     * Data provider for clean data processing
-     * 
-     * @var DataProviderInterface
+     * Default pagination settings
      */
-    private DataProviderInterface $dataProvider;
+    private const DEFAULT_PAGINATION = [
+        'start' => 0,
+        'length' => 10,
+        'total' => 0
+    ];
 
     /**
-     * Enhanced architecture enabled flag
-     * 
-     * @var bool
+     * Default actions for datatables
      */
-    private bool $useEnhancedArchitecture = true;
+    private const DEFAULT_ACTIONS = ['view', 'insert', 'edit', 'delete'];
 
     /**
-     * Safely load configuration with fallback
+     * Fields to be excluded from datatable processing
      */
-    private function safeConfig(string $key, $default = null)
-    {
-        try {
-            // Check if Laravel app is available and config service exists
-            if (function_exists('app') && app()->bound('config')) {
-                return config($key, $default);
-            } elseif (function_exists('config')) {
-                return config($key, $default);
-            }
-        } catch (\Throwable $e) {
-            // Config loading failed, return default
-        }
-        
-        return $default;
-    }
+    private const BLACKLISTED_FIELDS = ['password', 'action', 'no'];
 
     /**
-     * Get valid image extensions from config
+     * Reserved request parameter names that should be ignored during filtering
      */
-    private function getImageExtensions()
-    {
-        return $this->safeConfig('datatables.image_extensions', ['jpg', 'jpeg', 'png', 'gif']);
-    }
-
-    /**
-     * Get default pagination settings from config
-     */
-    private function getDefaultPagination()
-    {
-        return $this->safeConfig('datatables.default_pagination', [
-            'start' => 0,
-            'length' => 10,
-            'total' => 0
-        ]);
-    }
-
-    /**
-     * Get default actions from config
-     */
-    private function getDefaultActions()
-    {
-        return $this->safeConfig('datatables.default_actions', ['view', 'insert', 'edit', 'delete']);
-    }
-
-    /**
-     * Get blacklisted fields from config
-     */
-    private function getBlacklistedFields()
-    {
-        return $this->safeConfig('datatables.blacklisted_fields', ['password', 'action', 'no']);
-    }
-
-    /**
-     * Get reserved parameters from config
-     */
-    private function getReservedParameters()
-    {
-        return $this->safeConfig('datatables.reserved_parameters', [
-            'renderDataTables', 'draw', 'columns', 'order', 'start', 
-            'length', 'search', 'difta', '_token', '_'
-        ]);
-    }
+    private const RESERVED_PARAMETERS = [
+        'renderDataTables', 'draw', 'columns', 'order', 'start', 
+        'length', 'search', 'difta', '_token', '_'
+    ];
 
     /**
      * Constructor
      */
     public function __construct()
     {
-        // Initialize Enhanced Architecture Components (Phase 2)
-        $this->initializeEnhancedArchitecture();
-    }
-
-    /**
-     * Initialize Enhanced Architecture Components
-     * 
-     * @return void
-     */
-    private function initializeEnhancedArchitecture(): void
-    {
-        try {
-            // Initialize Model Registry for dynamic model resolution
-            $this->modelRegistry = new ModelRegistry();
-            
-            // Initialize Data Provider for clean data processing
-            $this->dataProvider = new DataProvider($this->modelRegistry);
-            
-            if ($this->safeConfig('datatables.debug', false)) { \Log::info("✅ Enhanced Architecture initialized", [
-                'model_registry' => get_class($this->modelRegistry),
-                'data_provider' => get_class($this->dataProvider),
-                'architecture_version' => '2.0.0'
-            ]); }
-            
-        } catch (\Exception $e) {
-            if ($this->safeConfig('datatables.debug', false)) { \Log::warning("⚠️  Enhanced Architecture initialization failed, falling back to legacy", [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine()
-            ]); }
-            
-            // Graceful fallback: disable enhanced architecture
-            $this->useEnhancedArchitecture = false;
-        }
+        // Empty constructor - initialization handled by trait
     }
 
     /**
@@ -188,105 +84,51 @@ class Datatables
     public function process($method, $data, $filters = [], $filter_page = [])
     {
         try {
-            if (config('datatables.debug', false)) { \Log::info("🚀 DataTables processing started", [
+            \Log::info("🚀 DataTables processing started", [
                 'method' => $method,
                 'has_data' => !empty($data),
                 'filters_count' => count($filters),
-                'filter_page_count' => count($filter_page),
-                'enhanced_architecture' => $this->useEnhancedArchitecture
-            ]); } // end debug log
-
-            // Declarative Relations API: merge runtime declared_relations & dot_columns into request method config
-            try {
-                $tbl = $method['difta']['name'] ?? ($method['difta[name]'] ?? null);
-                if ($tbl) {
-                    $rt = DatatableRuntime::get($tbl);
-                    if ($rt && isset($rt->datatables)) {
-                        if (!empty($rt->datatables->declared_relations)) {
-                            $method['declared_relations'] = $rt->datatables->declared_relations;
-                        }
-                        if (!empty($rt->datatables->dot_columns)) {
-                            $method['dot_columns'] = $rt->datatables->dot_columns;
-                        }
-                    }
-                }
-            } catch (\Throwable $e) {}
-
-            // Enhanced Phase 2: Try enhanced architecture first with graceful fallback
-            if ($this->useEnhancedArchitecture) {
-                try {
-                    $result = $this->processWithEnhancedArchitecture($method, $data, $filters, $filter_page);
-                    
-                    // Check if result has expected relational columns
-                    if ($this->hasMissingRelationalColumns($result)) {
-                        if (config('datatables.debug', false)) { \Log::warning("⚠️  Enhanced Architecture missing relational columns, falling back to legacy", [
-                            'missing_columns' => $this->getMissingColumns($result)
-                        ]); }
-                        
-                        // Continue with legacy processing
-                        $this->useEnhancedArchitecture = false;
-                    } else {
-                        return $result;
-                    }
-                    
-                } catch (\Exception $e) {
-                    if (config('datatables.debug', false)) { \Log::warning("⚠️  Enhanced architecture failed, falling back to legacy", [
-                        'error' => $e->getMessage(),
-                        'file' => $e->getFile(),
-                        'line' => $e->getLine()
-                    ]); }
-                    
-                    // Continue with legacy processing
-                    $this->useEnhancedArchitecture = false;
-                }
-            }
-            
-            // Legacy processing path
-            if (config('datatables.debug', false)) { \Log::info("🔄 Using legacy processing path"); }
+                'filter_page_count' => count($filter_page)
+            ]);
             
             // Initialize model and table data
-            // Phase 1: use trait wrapper when enabled, else legacy method
-            $useTraits = (bool) (config('datatable.use_traits', false));
-            $modelData = $useTraits ? $this->initModelFromConfig($method, $data) : $this->initializeModel($method, $data);
-            if (config('datatables.debug', false)) { \Log::info("✅ Model initialized", ['model_class' => get_class($modelData), 'use_traits' => $useTraits]); }
+            $modelData = $this->initializeModel($method, $data);
+            \Log::info("✅ Model initialized", ['model_class' => get_class($modelData)]);
             
             $tableName = $this->getTableName($modelData);
-            if (config('datatables.debug', false)) { \Log::info("✅ Table name resolved", ['table' => $tableName]); }
+            \Log::info("✅ Table name resolved", ['table' => $tableName]);
             
             // Process model if needed
             $this->processModel($data, $tableName);
 
             // Get configuration data
             $config = $this->getConfiguration($data, $tableName);
-            if (config('datatables.debug', false)) { \Log::info("✅ Configuration loaded", [
+            \Log::info("✅ Configuration loaded", [
                 'first_field' => $config['firstField'], 
                 'blacklists_count' => count($config['blacklists'])
-            ]); }
+            ]);
 
             // Setup privileges and actions
             $actionConfig = $this->setupActions($config, $tableName);
-            if (config('datatables.debug', false)) { \Log::info("✅ Actions configured", ['action_list_count' => count($actionConfig['actionList'])]); }
+            \Log::info("✅ Actions configured", ['action_list_count' => count($actionConfig['actionList'])]);
 
             // Setup relationships and joins
             $modelData = $this->setupRelationships($modelData, $config, $tableName);
-            if (config('datatables.debug', false)) { \Log::info("✅ Relationships setup completed"); }
+            \Log::info("✅ Relationships setup completed");
 
             // Apply conditions and filters
             $modelData = $this->applyConditions($modelData, $data, $tableName);
-            if (config('datatables.debug', false)) { \Log::info("✅ Conditions applied"); }
+            \Log::info("✅ Conditions applied");
             
-            // Phase 1: route through trait wrapper when enabled
-            $modelData = $useTraits
-                ? $this->applyRequestFilters($modelData, is_array($filters) ? $filters : [], $tableName, $config['firstField'])
-                : $this->applyFilters($modelData, $filters, $tableName, $config['firstField']);
-            if (config('datatables.debug', false)) { \Log::info("✅ Filters applied", ['filters_applied' => is_array($filters) ? count($filters) : 0, 'use_traits' => $useTraits]); }
+            $modelData = $this->applyFilters($modelData, $filters, $tableName, $config['firstField']);
+            \Log::info("✅ Filters applied", ['filters_applied' => count($filters)]);
 
             // Setup pagination
             $paginationConfig = $this->setupPagination($modelData);
-            if (config('datatables.debug', false)) { \Log::info("✅ Pagination configured", [
+            \Log::info("✅ Pagination configured", [
                 'start' => $paginationConfig['start'], 
                 'length' => $paginationConfig['length']
-            ]); }
+            ]);
             
             $modelData->skip($paginationConfig['start'])->take($paginationConfig['length']);
 
@@ -298,7 +140,7 @@ class Datatables
                 }
                 
                 $datatables = $this->createDatatables($modelData, $paginationConfig, $config);
-                if (config('datatables.debug', false)) { \Log::info("✅ DataTables instance created"); }
+                \Log::info("✅ DataTables instance created");
             } catch (\Exception $e) {
                 \Log::error("❌ CRITICAL Error in createDatatables", [
                     'error' => $e->getMessage(),
@@ -312,7 +154,7 @@ class Datatables
             // Apply column modifications with error isolation
             try {
                 $this->applyColumnModifications($datatables, $modelData, $data, $tableName, $config);
-                if (config('datatables.debug', false)) { \Log::info("✅ Column modifications applied"); }
+                \Log::info("✅ Column modifications applied");
             } catch (\Exception $e) {
                 \Log::error("❌ Error in applyColumnModifications", [
                     'error' => $e->getMessage(),
@@ -324,7 +166,7 @@ class Datatables
             // Setup row attributes with error isolation
             try {
                 $this->setupRowAttributes($datatables, $data, $tableName);
-                if (config('datatables.debug', false)) { \Log::info("✅ Row attributes configured"); }
+                \Log::info("✅ Row attributes configured");
             } catch (\Exception $e) {
                 \Log::error("❌ Error in setupRowAttributes", [
                     'error' => $e->getMessage(),
@@ -336,7 +178,7 @@ class Datatables
             // Add action column with error isolation (default behavior - always add)
             try {
                 $this->addActionColumn($datatables, $modelData, $actionConfig, $data);
-                if (config('datatables.debug', false)) { \Log::info("✅ Action column added (default behavior)"); }
+                \Log::info("✅ Action column added (default behavior)");
             } catch (\Exception $e) {
                 \Log::error("❌ Error in addActionColumn", [
                     'error' => $e->getMessage(),
@@ -347,21 +189,8 @@ class Datatables
 
             // Return final datatable with error isolation
             try {
-                // Check if DT_RowIndex is expected in request columns
-                $needsIndexColumn = $this->checkIfDTRowIndexNeeded();
-                $indexLists = $data->datatables->records['index_lists'] ?? false;
-                
-                // Override index_lists if DT_RowIndex is expected but not configured
-                if ($needsIndexColumn && !$indexLists) {
-                    if (config('datatables.debug', false)) { \Log::info("🔢 DT_RowIndex detected in request - forcing index column addition"); }
-                    $indexLists = true;
-                }
-                
-                $result = $this->finalizeDatatable($datatables, $indexLists);
-                \Log::info("🎉 DataTables processing completed successfully", [
-                    'index_column_added' => $indexLists,
-                    'dt_rowindex_needed' => $needsIndexColumn
-                ]);
+                $result = $this->finalizeDatatable($datatables, $data->datatables->records['index_lists']);
+                \Log::info("🎉 DataTables processing completed successfully");
             } catch (\Exception $e) {
                 \Log::error("❌ CRITICAL Error in finalizeDatatable", [
                     'error' => $e->getMessage(),
@@ -393,150 +222,6 @@ class Datatables
                 'error' => 'DataTables processing error: ' . $e->getMessage()
             ], 500);
         }
-    }
-
-    /**
-     * Enhanced Phase 2: Process with Enhanced Architecture
-     * 
-     * Uses DataProvider and DataTablesAdapter for clean separation between
-     * data processing and presentation logic.
-     * 
-     * @param array $method Method configuration
-     * @param object $data Data configuration object
-     * @param array $filters Applied filters
-     * @param array $filter_page Filter page configuration
-     * @return mixed Processed datatable data
-     */
-    private function processWithEnhancedArchitecture($method, $data, $filters = [], $filter_page = [])
-    {
-        \Log::info("🚀 Enhanced Architecture processing started", [
-            'version' => '2.0.0',
-            'data_provider' => get_class($this->dataProvider),
-            'model_registry' => get_class($this->modelRegistry)
-        ]);
-
-        // Prepare configuration for DataProvider
-        $config = $this->prepareEnhancedConfig($method, $data, $filters, $filter_page);
-        
-        // Initialize DataProvider with configuration
-        $this->dataProvider->initialize($config);
-        \Log::info("✅ DataProvider initialized with enhanced config");
-
-        // Prepare request configuration for DataTablesAdapter
-        $requestConfig = $this->prepareRequestConfig($method, $filters, $filter_page);
-        
-        // Setup action configuration
-        $actionConfig = $this->prepareActionConfig($config, $data);
-        
-        // Create DataTablesAdapter
-        $adapter = new DataTablesAdapter(
-            $this->dataProvider,
-            $config,
-            $actionConfig
-        );
-        \Log::info("✅ DataTablesAdapter created");
-
-        // Render response using adapter
-        $result = $adapter->render($requestConfig);
-        
-        \Log::info("🎉 Enhanced Architecture processing completed successfully", [
-            'total_records' => $result['recordsTotal'] ?? 0,
-            'filtered_records' => $result['recordsFiltered'] ?? 0,
-            'returned_records' => count($result['data'] ?? [])
-        ]);
-
-        return response()->json($result);
-    }
-
-    /**
-     * Prepare configuration for enhanced DataProvider
-     * 
-     * @param array $method Method configuration
-     * @param object $data Data configuration object
-     * @param array $filters Applied filters
-     * @param array $filter_page Filter page configuration
-     * @return array Enhanced configuration
-     */
-    private function prepareEnhancedConfig($method, $data, $filters, $filter_page): array
-    {
-        // Extract table name from method configuration
-        $tableName = null;
-        
-        if (isset($method['difta']) && isset($method['difta']['name'])) {
-            $tableName = $method['difta']['name'];
-        } elseif (isset($method['difta[name]'])) {
-            $tableName = $method['difta[name]'];
-        }
-
-        if (!$tableName) {
-            throw new \InvalidArgumentException('Table name not found in method configuration');
-        }
-
-        // Ambil konfigurasi numbering/index_lists dari runtime data (jika ada)
-        $indexLists = false;
-        try {
-            $indexLists = $data->datatables->records['index_lists'] ?? false;
-        } catch (\Throwable $e) {
-            $indexLists = false;
-        }
-
-        return [
-            'table_name' => $tableName,
-            'method' => $method,
-            'data' => $data,
-            'filters' => $filters,
-            'filter_page' => $filter_page,
-            'enhanced_mode' => true,
-            // Kirim flag numbering ke adapter agar bisa memaksa DT_RowIndex
-            'index_lists' => (bool) $indexLists,
-            // Phase 1 wiring: pass declarative relations & dot columns to provider
-            'declared_relations' => $method['declared_relations'] ?? [],
-            'dot_columns'        => $method['dot_columns'] ?? [],
-        ];
-    }
-
-    /**
-     * Prepare request configuration for DataTablesAdapter
-     * 
-     * @param array $method Method configuration
-     * @param array $filters Applied filters
-     * @param array $filter_page Filter page configuration
-     * @return array Request configuration
-     */
-    private function prepareRequestConfig($method, $filters, $filter_page): array
-    {
-        $requestData = array_merge($_GET, $_POST);
-        
-        return array_merge($requestData, [
-            'filters' => $filters,
-            'filter_page' => $filter_page,
-            'method' => $method
-        ]);
-    }
-
-    /**
-     * Prepare action configuration for DataTablesAdapter
-     * 
-     * @param array $config Configuration
-     * @param object $data Data configuration object
-     * @return array Action configuration
-     */
-    private function prepareActionConfig($config, $data): array
-    {
-        $tableName = $config['table_name'];
-        
-        // Get action configuration from data object
-        $columnData = $data->datatables->columns ?? [];
-        $tableConfig = $columnData[$tableName] ?? [];
-        $actions = $tableConfig['actions'] ?? [];
-
-        return [
-            'enabled' => true,
-            'actions' => !empty($actions) && is_array($actions) 
-                ? $actions 
-                : $this->getDefaultActions(),
-            'table' => $tableName
-        ];
     }
 
     /**
@@ -779,35 +464,6 @@ class Datatables
     private function createFromTableName($tableName)
     {
         \Log::info("🔧 Creating model from table name: {$tableName}");
-        
-        // Enhanced Phase 2: Try to use model registry for proper connection handling
-        if ($this->useEnhancedArchitecture && isset($this->modelRegistry)) {
-            try {
-                $modelConfig = $this->modelRegistry->resolve($tableName);
-                
-                // If we have a model class configured, instantiate it
-                if (!empty($modelConfig['class'])) {
-                    $modelClass = $modelConfig['class'];
-                    if (class_exists($modelClass)) {
-                        \Log::info("✅ Creating Eloquent model: {$modelClass}");
-                        $model = new $modelClass();
-                        return $model->newQuery(); // Returns Eloquent Builder with proper connection
-                    }
-                }
-                
-                // If we have a specific connection configured, use it
-                if (!empty($modelConfig['connection'])) {
-                    \Log::info("✅ Using configured connection: {$modelConfig['connection']}");
-                    return \DB::connection($modelConfig['connection'])->table($tableName);
-                }
-                
-            } catch (\Exception $e) {
-                \Log::warning("⚠️ ModelRegistry failed for {$tableName}, using fallback: " . $e->getMessage());
-            }
-        }
-        
-        // Fallback: Use default connection
-        \Log::info("🔄 Using default connection for table: {$tableName}");
         return \DB::table($tableName);
     }
 
@@ -1080,7 +736,7 @@ class Datatables
             ]);
             
             $firstField = 'id';
-            $blacklists = $this->getBlacklistedFields();
+            $blacklists = self::BLACKLISTED_FIELDS;
             
             // Check if table configuration exists
             if (!isset($columnData[$tableName])) {
@@ -1134,7 +790,7 @@ class Datatables
                 'privileges' => [],
                 'columnData' => [],
                 'firstField' => 'id',
-                'blacklists' => $this->getBlacklistedFields(),
+                'blacklists' => self::BLACKLISTED_FIELDS,
                 'buttonsRemoval' => [],
                 'orderBy' => []
             ];
@@ -1161,10 +817,7 @@ class Datatables
         }
 
         $actionList = $this->determineActionList($columnData[$tableName]['actions']);
-        $useTraits = (bool) (config('datatable.use_traits', false));
-        $allowedActions = $useTraits
-            ? $this->filterActionsByPrivilegeTrait($actionList, $privileges)
-            : $this->filterActionsByPrivileges($actionList, $privileges);
+        $allowedActions = $this->filterActionsByPrivileges($actionList, $privileges);
         $removedPrivileges = array_diff($actionList, $allowedActions);
 
         \Log::info("✅ Actions setup completed", [
@@ -1188,14 +841,11 @@ class Datatables
     private function determineActionList($actions)
     {
         if ($actions === true) {
-            return $this->getDefaultActions();
+            return self::DEFAULT_ACTIONS;
         }
 
         if (is_array($actions)) {
-            // Fix: pass-by-reference requires variables, not function call results
-            $defaults  = $this->getDefaultActions();
-            $overrides = $actions;
-            return array_merge_recursive_distinct($defaults, $overrides);
+            return array_merge_recursive_distinct(self::DEFAULT_ACTIONS, $actions);
         }
 
         return [];
@@ -1210,13 +860,11 @@ class Datatables
         
         // Priority 1: Check if model has specific relationship method (for complex relationships)
         try {
-            // Check if we have an Eloquent Builder with a model
-            if (method_exists($modelData, 'getModel') && $modelData->getModel()) {
-                $modelClass = get_class($modelData->getModel());
-                \Log::info("🔍 Model class: {$modelClass}");
-                
-                // For Eloquent models, check for relationship methods
-                if (method_exists($modelClass, 'getUserInfo') && $tableName === 'users') {
+            $modelClass = get_class($modelData->getModel());
+            \Log::info("🔍 Model class: {$modelClass}");
+            
+            // For Eloquent models, check for relationship methods
+            if (method_exists($modelClass, 'getUserInfo') && $tableName === 'users') {
                 \Log::info('✅ Found getUserInfo method in User model - using model relationship');
                 
                 // Create new instance and get query with relationships  
@@ -1233,9 +881,6 @@ class Datatables
                 \Log::info('🔍 Sample relationship data: ' . json_encode($sampleData->toArray()));
                 
                 return $relationQuery;
-                }
-            } else {
-                \Log::info("ℹ️ No Eloquent model available for {$tableName}, skipping model relationships");
             }
         } catch (\Exception $e) {
             \Log::error('❌ Error in model relationship detection: ' . $e->getMessage());
@@ -1370,7 +1015,7 @@ class Datatables
 
         $result = [];
         foreach ($actionList as $action) {
-            if (isset($allowedActions[$action]) || !in_array($action, $this->getDefaultActions())) {
+            if (isset($allowedActions[$action]) || !in_array($action, self::DEFAULT_ACTIONS)) {
                 $result[] = $action;
             }
         }
@@ -1495,26 +1140,13 @@ class Datatables
         // Enable SQL query logging to see actual database queries
         \DB::enableQueryLog();
         
-        // Apply each processed filter with qualified columns and proper operators
-        foreach ($processedFilters as $col => $val) {
-            $qualified = (strpos($col, '.') === false) ? "{$tableName}.{$col}" : $col;
-            if (is_array($val)) {
-                $flat = array_values(array_unique(array_filter($val, static function($v) {
-                    return $v !== null && $v !== '';
-                })));
-                if (!empty($flat)) {
-                    $modelData = $modelData->whereIn($qualified, $flat);
-                }
-            } else {
-                $modelData = $modelData->where($qualified, 'LIKE', '%' . $val . '%');
-            }
-        }
+        $result = $modelData->where($processedFilters);
         
         // Log the SQL queries that were executed
         $queries = \DB::getQueryLog();
         \Log::info('📊 SQL QUERIES WITH FILTERS', ['queries' => $queries]);
         
-        return $modelData;
+        return $result;
     }
 
     /**
@@ -1581,41 +1213,26 @@ class Datatables
     }
 
     /**
-     * CRITICAL FIX: Check if filter parameter is valid
+     * Check if filter parameter is valid
      */
     private function isValidFilterParameter($name, $value)
     {
-        // HARD-CODED EXCLUSION: DataTables control parameters
-        $datatables_control_params = [
-            'draw', 'columns', 'order', 'start', 'length', 'search',
-            'renderDataTables', 'difta', '_token', '_', 'method',
-            'data', 'action', 'submit', 'submit_button', 'filters',
-            'filterDataTables'
-        ];
+        $isFiltersParam = ($name === 'filters');
+        $isEmpty = ($value === '');
+        $isReserved = in_array($name, self::RESERVED_PARAMETERS);
         
-        // Config-based exclusion as backup
-        $config_reserved = $this->getReservedParameters();
-        $all_reserved = array_merge($datatables_control_params, $config_reserved);
-        
-        // Strict validation
-        $is_reserved = in_array($name, $all_reserved, true);
-        $is_empty = empty($value) && $value !== '0' && $value !== 0;
-        $is_special = strpos($name, 'csrf') !== false || strpos($name, 'token') !== false;
-        
-        \Log::info('🔍 LEGACY FILTER VALIDATION', [
+        \Log::info('🔍 FILTER VALIDATION DETAILS', [
             'name' => $name,
-            'value_type' => gettype($value),
-            'value_sample' => is_string($value) ? substr((string)$value, 0, 50) : $value,
-            'is_reserved' => $is_reserved,
-            'is_empty' => $is_empty,
-            'is_special' => $is_special,
-            'all_reserved_count' => count($all_reserved),
-            'final_result' => !$is_reserved && !$is_empty && !$is_special
+            'value' => $value,
+            'isFiltersParam' => $isFiltersParam,
+            'isEmpty' => $isEmpty,
+            'isReserved' => $isReserved,
+            'RESERVED_PARAMETERS' => self::RESERVED_PARAMETERS
         ]);
         
-        $result = !$is_reserved && !$is_empty && !$is_special;
+        $result = !$isFiltersParam && !$isEmpty && !$isReserved;
         
-        \Log::info('🔍 LEGACY FILTER VALIDATION RESULT', [
+        \Log::info('🔍 FILTER VALIDATION RESULT', [
             'name' => $name,
             'result' => $result ? 'VALID' : 'INVALID'
         ]);
@@ -1662,7 +1279,7 @@ class Datatables
      */
     private function setupPagination($modelData)
     {
-        $config = $this->getDefaultPagination();
+        $config = self::DEFAULT_PAGINATION;
         $config['total'] = $modelData->count();
 
         // Check both GET and POST data for pagination parameters
@@ -1691,18 +1308,7 @@ class Datatables
             ->smart(true);
 
         $this->setupRawColumns($datatables);
-
-        // Ordering wiring via feature flag
-        $useTraits = (bool) (config('datatable.use_traits', false));
-        if ($useTraits) {
-            $this->applyOrderingTrait($datatables, $modelData, [
-                'default_order' => !empty($config['orderBy']) ? [
-                    ['column' => $config['orderBy']['column'] ?? 'id', 'direction' => $config['orderBy']['order'] ?? 'asc']
-                ] : []
-            ]);
-        } else {
-            $this->setupOrdering($datatables, $config['orderBy'], $config['columnData']);
-        }
+        $this->setupOrdering($datatables, $config['orderBy'], $config['columnData']);
 
         return $datatables;
     }
@@ -1760,12 +1366,7 @@ class Datatables
         }
         
         // Also handle DataTables request ordering (from frontend clicks)
-        $useTraits = (bool) (config('datatable.use_traits', false));
-        if ($useTraits) {
-            $this->handleDataTablesOrderingTrait($datatables);
-        } else {
-            $this->handleDataTablesOrdering($datatables);
-        }
+        $this->handleDataTablesOrdering($datatables);
     }
 
     /**
@@ -1820,14 +1421,7 @@ class Datatables
     private function applyColumnModifications($datatables, $modelData, $data, $tableName, $config)
     {
         $this->processImageColumns($datatables, $modelData);
-        // Relationship wiring behind feature flag
-        $useTraits = (bool) (config('datatable.use_traits', false));
-        if ($useTraits) {
-            $this->setupRelationshipsTrait($modelData, $config);
-        } else {
-            $this->processRelationalData($datatables, $data, $tableName, $config);
-        }
-
+        $this->processRelationalData($datatables, $data, $tableName, $config);
         $this->processStatusColumns($datatables, $modelData);
         $this->processFormulaColumns($datatables, $data, $tableName);
         $this->processFormattedColumns($datatables, $data, $tableName);
@@ -1835,7 +1429,7 @@ class Datatables
         \Log::info('🔧 COLUMN MODIFICATIONS APPLIED', [
             'table' => $tableName,
             'image_processing' => 'ENABLED',
-            'relational_processing' => $useTraits ? 'TRAIT' : 'ENABLED',
+            'relational_processing' => 'ENABLED',
             'status_processing' => 'ENABLED'
         ]);
     }
@@ -2209,8 +1803,8 @@ class Datatables
      */
     private function prepareActionData($modelData, $actionConfig, $data)
     {
-        // Get default actions from config
-        $defaultActions = $this->getDefaultActions();
+        // Default actions (view, edit, delete) if no specific config
+        $defaultActions = ['view', 'edit', 'delete'];
         
         // Determine action list
         $actionList = $defaultActions; // Start with defaults
@@ -2260,119 +1854,6 @@ class Datatables
         }
 
         return $baseRemoved;
-    }
-
-    /**
-     * Check if Enhanced Architecture result is missing expected relational columns
-     * 
-     * @param mixed $result Result from Enhanced Architecture
-     * @return bool True if missing relational columns
-     */
-    private function hasMissingRelationalColumns($result): bool
-    {
-        // Extract expected columns from request
-        $expectedColumns = $this->getExpectedColumnsFromRequest();
-        
-        // Check if result has data
-        if (!isset($result->original['data']) || empty($result->original['data'])) {
-            return false; // No data to check
-        }
-        
-        $firstRow = $result->original['data'][0] ?? [];
-        $actualColumns = array_keys((array) $firstRow);
-        
-        // Common relational columns that might be missing
-        $relationalColumns = ['group_info', 'group_name'];
-        
-        foreach ($relationalColumns as $column) {
-            if (in_array($column, $expectedColumns) && !in_array($column, $actualColumns)) {
-                \Log::info("🔍 Missing relational column detected", [
-                    'expected_column' => $column,
-                    'actual_columns' => $actualColumns,
-                    'expected_columns' => $expectedColumns
-                ]);
-                return true;
-            }
-        }
-        
-        return false;
-    }
-    
-    /**
-     * Get missing columns from Enhanced Architecture result
-     * 
-     * @param mixed $result Result from Enhanced Architecture
-     * @return array Missing columns
-     */
-    private function getMissingColumns($result): array
-    {
-        $expectedColumns = $this->getExpectedColumnsFromRequest();
-        
-        if (!isset($result->original['data']) || empty($result->original['data'])) {
-            return [];
-        }
-        
-        $firstRow = $result->original['data'][0] ?? [];
-        $actualColumns = array_keys((array) $firstRow);
-        
-        return array_diff($expectedColumns, $actualColumns);
-    }
-    
-    /**
-     * Get expected columns from DataTables request
-     * 
-     * @return array Expected column names
-     */
-    private function getExpectedColumnsFromRequest(): array
-    {
-        try {
-            $columns = request('columns', []);
-            $expectedColumns = [];
-            
-            if (is_array($columns)) {
-                foreach ($columns as $column) {
-                    if (is_array($column) && isset($column['data'])) {
-                        $expectedColumns[] = $column['data'];
-                    }
-                }
-            }
-            
-            return $expectedColumns;
-            
-        } catch (\Exception $e) {
-            \Log::warning("⚠️ Error getting expected columns: " . $e->getMessage());
-            return [];
-        }
-    }
-
-    /**
-     * Check if DT_RowIndex column is expected in the request
-     * 
-     * @return bool True if DT_RowIndex is expected
-     */
-    private function checkIfDTRowIndexNeeded(): bool
-    {
-        try {
-            // Check request columns for DT_RowIndex
-            $columns = request('columns', []);
-            
-            if (!is_array($columns)) {
-                return false;
-            }
-            
-            foreach ($columns as $column) {
-                if (is_array($column) && isset($column['data']) && $column['data'] === 'DT_RowIndex') {
-                    \Log::info("🔢 DT_RowIndex column detected in request columns");
-                    return true;
-                }
-            }
-            
-            return false;
-            
-        } catch (\Exception $e) {
-            \Log::warning("⚠️ Error checking for DT_RowIndex: " . $e->getMessage());
-            return false;
-        }
     }
 
     /**
@@ -2563,7 +2044,7 @@ class Datatables
         
         // First check if string looks like an image path/filename
         $hasImageExtension = false;
-        foreach ($this->getImageExtensions() as $extension) {
+        foreach (self::IMAGE_EXTENSIONS as $extension) {
             if (strpos(strtolower($string), '.' . $extension) !== false) {
                 $hasImageExtension = true;
                 break;

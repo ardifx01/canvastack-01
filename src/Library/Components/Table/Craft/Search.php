@@ -398,7 +398,8 @@ class Search {
 			$nexTargets  = $fieldsets;
 		}
 		$firstTarget = $fieldsets[0];
-		$lastTarget  = $fieldsets[count($fieldsets)-2];
+		$__lastIndex = count($fieldsets) - 2;
+			$lastTarget  = ($__lastIndex >= 0 && isset($fieldsets[$__lastIndex])) ? $fieldsets[$__lastIndex] : null;
 		
 		$nests       = [];		
 		$prev        = null;
@@ -467,7 +468,7 @@ class Search {
 				$diyFilters = json_encode($filters);
 				$diyF       = ",'_diyF':{$diyFilters}";
 			}
-			$ajax_data    = "{'{$identity}':_val{$iNode},'_fita':'{$token}::{$table}::{$next_target}::{$prev}#' + _prevS{$iNode} + '::{$nest}','_token':'{$token}','_n':'{$nest}','_forKeys':'{$forkeys}'{$ajaxConnection}{$diyF}}";
+			$ajax_data    = "{'{$identity}':_val{$iNode},'_difta':'{$token}::{$table}::{$next_target}::{$prev}#' + _prevS{$iNode} + '::{$nest}','_token':'{$token}','_n':'{$nest}','_forKeys':'{$forkeys}'{$ajaxConnection}{$diyF}}";
 			
 			$ajaxSuccess  = "var _next{$next_target} = '{$target}';";
 			$ajaxSuccess .= "var _prevS{$iNode} = {$prevscript};";

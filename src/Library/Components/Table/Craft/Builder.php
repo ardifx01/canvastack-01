@@ -3,6 +3,8 @@ namespace Incodiy\Codiy\Library\Components\Table\Craft;
 
 use Incodiy\Codiy\Models\Admin\System\DynamicTables;
 use Incodiy\Codiy\Library\Components\Table\Craft\Method\Post;
+use Incodiy\Codiy\Library\Components\Table\Craft\Search;
+use Incodiy\Codiy\Library\Components\Table\Craft\DatatableRuntime;
 
 /**
  * Created on 21 Apr 2021
@@ -14,101 +16,290 @@ use Incodiy\Codiy\Library\Components\Table\Craft\Method\Post;
  * @copyright	wisnuwidi
  * @email		wisnuwidi@incodiy.com
  */
- 
+
+/**
+ * Table Builder Class
+ * 
+ * Handles the construction and rendering of data tables with various features:
+ * - Dynamic column management
+ * - Header customization and merging
+ * - Server-side and client-side filtering
+ * - Color customization
+ * - Action buttons and numbering
+ * 
+ * This class has been refactored to follow SOLID principles and improve maintainability.
+ */
 class Builder {
 	use Scripts;
 	
 	public $model;
 	public $method = 'GET';
 	
-	protected function setMethod($method) {
+	/**
+	 * Security mode configuration
+	 * When true, forces POST method for sensitive operations
+	 * 
+	 * @var bool
+	 */
+	protected $secureMode = false;
+	
+	/**
+	 * Allowed methods for data table operations
+	 * 
+	 * @var array
+	 */
+	protected $allowedMethods = ['GET', 'POST'];
+	
+	/**
+	 * Set the HTTP method for table operations
+	 * 
+	 * @param string $method HTTP method (GET/POST)
+	 * @throws InvalidArgumentException If method is not allowed
+	 * @return self
+	 */
+	public function setMethod($method) {
+		$method = strtoupper($method);
+		
+		if (!in_array($method, $this->allowedMethods)) {
+			throw new \InvalidArgumentException("Method '{$method}' is not allowed. Allowed methods: " . implode(', ', $this->allowedMethods));
+		}
+		
+		// Force POST method if secure mode is enabled
+		if ($this->secureMode && $method === 'GET') {
+			$method = 'POST';
+		}
+		
 		$this->method = $method;
+		
+		return $this;
 	}
 	
+	/**
+	 * Enable or disable secure mode
+	 * In secure mode, all data table operations will use POST method
+	 * 
+	 * @param bool $secure Whether to enable secure mode
+	 * @return self
+	 */
+	public function setSecureMode(bool $secure = true): self {
+		$this->secureMode = $secure;
+		
+		// Force POST method if secure mode is enabled
+		if ($secure) {
+			$this->method = 'POST';
+		}
+		
+		return $this;
+	}
+	
+	/**
+	 * Check if secure mode is enabled
+	 * 
+	 * @return bool
+	 */
+	public function isSecureMode(): bool {
+		return $this->secureMode;
+	}
+	
+	/**
+	 * Get current HTTP method
+	 * 
+	 * @return string
+	 */
+	public function getMethod(): string {
+		return $this->method;
+	}
+	
+	/**
+	 * Set method to POST for secure operations
+	 * 
+	 * @return self
+	 */
+	public function usePostMethod(): self {
+		$this->setMethod('POST');
+		return $this;
+	}
+	
+	/**
+	 * Set method to GET for standard operations
+	 * 
+	 * @return self
+	 */
+	public function useGetMethod(): self {
+		if (!$this->secureMode) {
+			$this->setMethod('GET');
+		}
+		return $this;
+	}
+	
+	/**
+	 * Main table generation method
+	 * 
+	 * Orchestrates the entire table building process including data preparation,
+	 * model setup, header generation, and final HTML construction.
+	 * 
+	 * @param string $name Table name
+	 * @param array $columns Column configuration
+	 * @param array $attributes Table attributes and settings
+	 * @param string|null $label Optional custom table label
+	 * @return string Complete HTML table structure
+	 */
 	protected function table($name, $columns = [], $attributes = [], $label = null) {
+		$data = $this->prepareTableData($name, $columns, $attributes);
+		$this->setupModelAndConfiguration($name, $data, $attributes);
+		$this->processFormulation($data, $name);
+		
+		$tableTitle = $this->generateTableTitle($name, $label);
+		$tableAttributes = $this->prepareTableAttributes($name, $attributes);
+		$table = $this->renderTableStructure($data, $name, $tableAttributes);
+		
+		// Register datatable runtime context for POST processing
+		$runtime = new \stdClass();
+		$runtime->datatables = new \stdClass();
+		$runtime->datatables->model = $this->model ?? [];
+		$runtime->datatables->columns = $data[$name]['columns'] ?? [];
+		$runtime->datatables->conditions = $data[$name]['attributes']['conditions'] ?? [];
+		$runtime->datatables->modelProcessing = $data[$name]['attributes']['model_processing'] ?? [];
+		$runtime->datatables->useFieldTargetURL = $data[$name]['attributes']['field_target_url'] ?? 'id';
+		$runtime->datatables->records = ['index_lists' => !empty($data[$name]['attributes']['numbering'])];
+
+		// Persist declarative relations and dot column mapping for AJAX requests (Phase 1)
+try {
+	$runtime->datatables->declared_relations = $attributes[$name]['declared_relations'] ?? [];
+	$runtime->datatables->dot_columns        = $attributes[$name]['dot_columns']        ?? [];
+} catch (\Throwable $e) {}
+
+DatatableRuntime::set($name, $runtime);
+
+
+		return $this->buildCompleteTableHtml($data, $name, $table, $tableTitle, $attributes);
+	}
+
+	private function prepareTableData($name, $columns, $attributes) {
 		$data = [];
+		$model = $this->createTableModel($name, $attributes);
+		
+		$data[$name]['name'] = $name;
+		$data[$name]['columns'] = $columns[$name];
+		$data[$name]['attributes'] = $attributes[$name];
+		
+		if (!empty($attributes[$name]['model']) && 'sql' === $attributes[$name]['model']) {
+			$data[$name]['model'] = 'sql';
+			$data[$name]['sql'] = $attributes[$name]['query'] ?? '';
+		} else {
+			$data[$name]['model'] = $attributes[$name]['model'] ?? get_class($model);
+		}
+		
+		return $data;
+	}
+
+	private function createTableModel($name, $attributes) {
+		$model = null;
 		
 		if (!empty($attributes[$name]['model'])) {
-			if ('sql' === $attributes[$name]['model']) {
-				$data[$name]['model'] = 'sql';
-				$data[$name]['sql']   = $attributes[$name]['query'];
-			} else {
+			if ('sql' !== $attributes[$name]['model']) {
 				$model = new $attributes[$name]['model']();
-				$data[$name]['model'] = $attributes[$name]['model'];
 			}
 		} else {
 			$model = new DynamicTables(null, $this->connection);
 			$model->setTable($name);
-			$data[$name]['model']       = get_class($model);
 			$attributes[$name]['model'] = get_class($model);
 		}
 		
+		return $model;
+	}
+
+	private function setupModelAndConfiguration($name, $data, $attributes) {
+		$model = null;
+		
+		if (!empty($attributes[$name]['model']) && 'sql' !== $attributes[$name]['model']) {
+			$model = new $attributes[$name]['model']();
+		} elseif (empty($attributes[$name]['model'])) {
+			$model = new DynamicTables(null, $this->connection);
+			$model->setTable($name);
+		}
+		
 		if (!empty($model)) {
-			$this->model[$name]['type']   = 'model';
+			$this->model[$name]['type'] = 'model';
 			$this->model[$name]['source'] = $model;
 		} else {
-			$this->model[$name]['type']   = 'sql';
+			$this->model[$name]['type'] = 'sql';
 			$this->model[$name]['source'] = $data[$name]['sql'];
 		}
 		
 		if (!empty($attributes[$name])) {
-			$tableID          = $attributes[$name]['attributes']['table_id'];
-			$tableClass       = $attributes[$name]['attributes']['table_class'];
-			$this->serverSide = $attributes[$name]['server_side']['status'];
-			$this->customURL  = $attributes[$name]['server_side']['custom_url'];
+			$this->serverSide = $attributes[$name]['server_side']['status'] ?? false;
+			$this->customURL = $attributes[$name]['server_side']['custom_url'] ?? null;
 		}
-		
-		$data[$name]['name']       = $name;
-		$data[$name]['columns']    = $columns[$name];
-		$data[$name]['attributes'] = $attributes[$name];
-		
-		// FORMULATION
+	}
+
+	private function processFormulation(&$data, $name) {
 		if (!empty($data[$name]['attributes']['conditions']['formula'])) {
 			if (!empty($data[$name]['columns']['lists'])) {
-				$data[$name]['columns']['lists'] = $this->setFormulaColumns($data[$name]['columns']['lists'], $data[$name]);
+				$data[$name]['columns']['lists'] = $this->setFormulaColumns(
+					$data[$name]['columns']['lists'], 
+					$data[$name]
+				);
 			}
 		}
-		
-		// RENDER DATA TABLE
-		if (false !== $name) {
-			$list = null;
-			if (diy_string_contained($label, ':setLabelTable')) {
-				$list = null;
-				$label = str_replace(':setLabelTable', '', $label);
-			} else {
-				$list = ' List(s)';
-			}
-			
-			if (empty($label)) {
-				$titleText  = ucwords(str_replace('_', ' ', $name)) . $list;
-			} else {
-				$titleText  = ucwords(str_replace('_', ' ', $label)) . $list;
-			}
-			$tableTitle = '<div class="panel-heading"><div class="pull-left"><h3 class="panel-title">' . $titleText . '</h3></div><div class="clearfix"></div></div>';
+	}
+
+	private function generateTableTitle($name, $label) {
+		if (false === $name) {
+			return '';
 		}
+
+		$list = ' List(s)';
+		if (diy_string_contained($label, ':setLabelTable')) {
+			$list = '';
+			$label = str_replace(':setLabelTable', '', $label);
+		}
+
+		$titleText = empty($label) 
+			? ucwords(str_replace('_', ' ', $name)) . $list
+			: ucwords(str_replace('_', ' ', $label)) . $list;
+
+		return '<div class="panel-heading"><div class="pull-left"><h3 class="panel-title">' . $titleText . '</h3></div><div class="clearfix"></div></div>';
+	}
+
+	private function prepareTableAttributes($name, $attributes) {
+		$tableID = $attributes[$name]['attributes']['table_id'] ?? 'table_' . $name;
+		$tableClass = $attributes[$name]['attributes']['table_class'] ?? 'table table-striped';
 		
 		$baseTableAttributes = ['id' => $tableID, 'class' => $tableClass];
-		$tableAttributes     = $baseTableAttributes;
+		$tableAttributes = $baseTableAttributes;
+		
 		if (!empty($attributes[$name]['attributes']['add_attributes'])) {
 			$tableAttributes = array_merge_recursive($baseTableAttributes, $attributes[$name]['attributes']['add_attributes']);
 		}
 		
-		$table  = '<div class="panel-body no-padding">';
+		return $tableAttributes;
+	}
+
+	private function renderTableStructure($data, $name, $tableAttributes) {
+		$table = '<div class="panel-body no-padding">';
 		$table .= '<table' . $this->setAttributes($tableAttributes) . '>';
 		$table .= $this->header($data[$name]);
 		$table .= '</table>';
 		$table .= '</div>';
-		// RENDER DATA TABLE
 		
+		return $table;
+	}
+
+	private function buildCompleteTableHtml($data, $name, $table, $tableTitle, $attributes) {
+		$tableID = $attributes[$name]['attributes']['table_id'] ?? 'table_' . $name;
 		$datatable_columns = $this->body($data[$name]);
-		$html  = '<div class="row">';
+		
+		$html = '<div class="row">';
 		$html .= '<div class="col-md-12">';
 		$html .= '<div class="panel">' . $tableTitle . '<br />';
 		$html .= '<div class="relative diy-table-box-' . $tableID . '">';
+		
 		if (!empty($this->filter_contents[$tableID]['id']) && $tableID === $this->filter_contents[$tableID]['id']) {
 			$html .= '<span class="diy-dt-search-box hide" id="diy-' . $tableID . '-search-box">' . $this->filterButton($this->filter_contents[$tableID]) . '</span>';
 			$html .= $this->filterModalbox($this->filter_contents[$tableID]);
 		}
+		
 		$html .= $table . $datatable_columns;
 		$html .= '</div>';
 		$html .= '</div>';
@@ -135,35 +326,38 @@ class Builder {
 	}
 	
 	private function header($data = []) {
-		$columns     = $data['columns'];
-		$attributes  = $data['attributes'];
+		$headerConfig = $this->prepareHeaderConfiguration($data);
+		$columns = $this->processColumnsForHeader($data, $headerConfig);
+		$colorSettings = $this->getColorSettings($data['attributes']);
 		
-		$sortable	 = false;
-		if (!empty($data['columns']['sortable'])) $sortable = $data['columns']['sortable'];
+		return $this->buildHeaderHtml($columns, $headerConfig, $colorSettings, $data['attributes']);
+	}
+
+	private function prepareHeaderConfiguration($data) {
+		$columns = $data['columns'];
+		$attributes = $data['attributes'];
 		
-		$actions     = false;
-		$numbering   = false;
-		$widthColumn = [];
-		
-		// COLUMN DATA MANIPULATION
-		$attributes['sortable_columns']					= $sortable;
-		$attributes['attributes']['column']['id']		= [];
-		$attributes['attributes']['column']['class']	= [];
-		if (!empty($attributes)) {
-			if (!empty($attributes['actions']))   $actions   = $attributes['actions'];
-			if (!empty($attributes['numbering'])) $numbering = $attributes['numbering'];
-			
-			if (!empty($attributes['attributes']['column_width'])) {
-				foreach ($attributes['attributes']['column_width'] as $column_name => $column_width) {
-					$widthColumn[$column_name] = $column_width;
-				}
-			}
+		$config = [
+			'sortable' => !empty($data['columns']['sortable']) ? $data['columns']['sortable'] : false,
+			'actions' => !empty($attributes['actions']) ? $attributes['actions'] : false,
+			'numbering' => !empty($attributes['numbering']) ? $attributes['numbering'] : false,
+			'widthColumn' => [],
+			'hiddenColumn' => !empty($data['columns']['hidden_columns']) ? $data['columns']['hidden_columns'] : [],
+			'alignColumn' => $this->extractAlignmentConfiguration($columns),
+			'mergeColumn' => $this->processMergeColumns($columns)
+		];
+
+		// Column widths
+		if (!empty($attributes['attributes']['column_width'])) {
+			$config['widthColumn'] = $attributes['attributes']['column_width'];
 		}
-		
-		$hiddenColumn = [];
-		if (!empty($data['columns']['hidden_columns'])) $hiddenColumn = $data['columns']['hidden_columns'];
-		
+
+		return $config;
+	}
+
+	private function extractAlignmentConfiguration($columns) {
 		$alignColumn = [];
+		
 		if (!empty($columns['align'])) {
 			foreach ($columns['align'] as $align => $column_data) {
 				if (true === $column_data['header']) {
@@ -174,216 +368,348 @@ class Builder {
 			}
 		}
 		
-		$mergeColumn = null;
-		if (!empty($columns['merge'])) {
-			// Manipulation Column Merged Label
-			if (!empty($this->labels)) {
-				$merged_labels = [];
-				foreach ($columns['merge'] as $colmergename => $colmerged) {
-					$merged_labels[$colmergename]['position']  = $colmerged['position'];
-					$merged_labels[$colmergename]['counts']    = $colmerged['counts'];
-					$merged_labels[$colmergename]['columns']   = $this->checkColumnLabel($this->labels, $colmerged['columns']);
-				}
-				if (!empty($merged_labels)) $columns['merge'] = $merged_labels;
+		return $alignColumn;
+	}
+
+	private function processMergeColumns($columns) {
+		if (empty($columns['merge'])) {
+			return null;
+		}
+
+		if (!empty($this->labels)) {
+			$merged_labels = [];
+			foreach ($columns['merge'] as $colmergename => $colmerged) {
+				$merged_labels[$colmergename]['position'] = $colmerged['position'];
+				$merged_labels[$colmergename]['counts'] = $colmerged['counts'];
+				$merged_labels[$colmergename]['columns'] = $this->checkColumnLabel($this->labels, $colmerged['columns']);
 			}
-			
-			$mergeColumn = $columns['merge'];
+			return !empty($merged_labels) ? $merged_labels : $columns['merge'];
 		}
-		if (!empty($columns['lists'])) {
-			$columns = $columns['lists'];
-		}
-		if (true === $numbering && !in_array('id', $columns)) {
-			$number  = ['number_lists'];
-			$columns = array_merge($number, $columns);
+
+		return $columns['merge'];
+	}
+
+	private function processColumnsForHeader($data, $config) {
+		$columns = !empty($data['columns']['lists']) ? $data['columns']['lists'] : [];
+		
+		// Add numbering
+		if (true === $config['numbering'] && !in_array('id', $columns)) {
+			$columns = array_merge(['number_lists'], $columns);
 		}
 		
-		if (!empty($actions)) {
-			array_push($columns, 'action');
+		// Add actions column
+		if (!empty($config['actions'])) {
+			$columns[] = 'action';
 		}
 		
+		// Apply labels if available
 		if (!empty($this->labels)) {
 			$columns = $this->checkColumnLabel($this->labels, $columns);
 		}
 		
-		$dataColumns = [];
-		if (!empty($this->columnManipulated)) {
-			$dataColumns = $this->columnManipulated;
-		}
+		return $columns;
+	}
+
+	private function getColorSettings($attributes) {
+		$bgColor = $attributes['attributes']['bg_color'] ?? null;
+		$tableColor = $this->backgroundColor($bgColor);
 		
-		// COLUMN DATA MANIPULATION
+		return [
+			'columnColor' => $tableColor['columns'] ?? [],
+			'headerColor' => $tableColor['header'] ?? null
+		];
+	}
+
+	private function buildHeaderHtml($columns, $config, $colorSettings, $attributes) {
+		$dataColumns = !empty($this->columnManipulated) ? $this->columnManipulated : [];
 		
-		// COLORING BACKGROUD
-		$columnColor = [];
-		$headerColor = null;
-		$bgColor     = null;
-		if (!empty($attributes['attributes']['bg_color'])) $bgColor = $attributes['attributes']['bg_color'];
-		$tableColor  = $this->backgroundColor($bgColor);
-		if (!empty($tableColor['columns'])) $columnColor = $tableColor['columns'];
-		if (!empty($tableColor['header']))  $headerColor = $tableColor['header'];
-		// COLORING BACKGROUD
-		
-		// BUILD HTML TABLE
-		if (!empty($mergeColumn)) {
+		if (!empty($config['mergeColumn'])) {
 			$headerTable = '<thead>';
-		} else {
-			$headerTable = '<thead><tr>';
-		}
-		
-		if (!empty($columns)) {
-			if (is_array($columns)) {
-				if (!empty($mergeColumn)) {
-					// If any set field(s) merged
-					if (!empty($alignColumn['header'])) {
-						$attributes['attributes']['column']['class'] = array_merge_recursive($attributes['attributes']['column']['class'], $alignColumn['header']);
-					}
-					$headerTable .= $this->mergeColumns($mergeColumn, $columns, $attributes);
-				} else {
-					// If no one set field(s) merged
-					foreach ($columns as $column) {						
-						if (!empty($dataColumns)) {
-							$id = $this->setAttributes(['id' => diy_decrypt(diy_encrypt($dataColumns[$column]))]);
-						} else {
-							$id = $this->setAttributes(['id' => diy_decrypt(diy_encrypt($column))]);
-						}
-						$class           = null;
-						$classAttributes = null;
-						
-						if (in_array($column, $hiddenColumn))        $classAttributes .= ' diy-hide-column';
-						if (!empty($alignColumn['header'][$column])) $classAttributes .= $alignColumn['header'][$column];
-						if ('action' === strtolower($column))        $classAttributes .= ' diy-column-action';						
-						if (!empty($classAttributes))                $class = $this->setAttributes(['class' => $classAttributes]);
-						
-						$headerLabel = ucwords(str_replace('_', ' ', $column));
-						if ('no' === strtolower($column) || 'id' === strtolower($column) || 'nik' === strtolower($column)) {
-							$headerTable .= "<th width=\"50\"{$headerColor}>{$headerLabel}</th>";
-							
-						} elseif ('number_lists' === strtolower($column)) {
-							$headerTable .= '<th width="30"' . $headerColor . '>No</th>';
-							$headerTable .= '<th width="30"' . $headerColor . '>ID</th>';
-							
-						} else {
-							$width_column = null;
-							if (!empty($widthColumn[strtolower($column)])) $width_column = ' width="' . $widthColumn[strtolower($column)] . '"';
-							
-							if (!empty($columnColor[$column])) {
-								$headerTable .= "<th{$id}{$class}{$headerColor}{$columnColor[$column]}{$width_column}>{$headerLabel}</th>";
-							} else {
-								$headerTable .= "<th{$id}{$class}{$headerColor}{$width_column}>{$headerLabel}</th>";
-							}
-						}
-					}
-				}
+			if (!empty($config['alignColumn']['header'])) {
+				$attributes['attributes']['column']['class'] = array_merge_recursive(
+					$attributes['attributes']['column']['class'] ?? [], 
+					$config['alignColumn']['header']
+				);
 			}
-		}
-		
-		if (!empty($mergeColumn)) {
+			$headerTable .= $this->mergeColumns($config['mergeColumn'], $columns, $attributes);
 			$headerTable .= '</thead>';
 		} else {
+			$headerTable = '<thead><tr>';
+			$headerTable .= $this->buildRegularHeaderColumns($columns, $config, $colorSettings, $dataColumns);
 			$headerTable .= '</tr></thead>';
 		}
-		// BUILD HTML TABLE
 		
 		return $headerTable;
 	}
+
+	private function buildRegularHeaderColumns($columns, $config, $colorSettings, $dataColumns) {
+		$headerCells = '';
+		
+		foreach ($columns as $column) {
+			$id = $this->generateColumnId($column, $dataColumns);
+			$class = $this->generateColumnClass($column, $config);
+			$headerLabel = ucwords(str_replace('_', ' ', $column));
+			
+			$headerCells .= $this->renderHeaderCell($column, $headerLabel, $id, $class, $config, $colorSettings);
+		}
+		
+		return $headerCells;
+	}
+
+	private function generateColumnId($column, $dataColumns) {
+		$columnForId = !empty($dataColumns[$column]) ? $dataColumns[$column] : $column;
+		return $this->setAttributes(['id' => diy_decrypt(diy_encrypt($columnForId))]);
+	}
+
+	private function generateColumnClass($column, $config) {
+		$classAttributes = '';
+		
+		if (in_array($column, $config['hiddenColumn'])) {
+			$classAttributes .= ' diy-hide-column';
+		}
+		
+		if (!empty($config['alignColumn']['header'][$column])) {
+			$classAttributes .= $config['alignColumn']['header'][$column];
+		}
+		
+		if ('action' === strtolower($column)) {
+			$classAttributes .= ' diy-column-action';
+		}
+		
+		return !empty($classAttributes) ? $this->setAttributes(['class' => $classAttributes]) : null;
+	}
+
+	private function renderHeaderCell($column, $headerLabel, $id, $class, $config, $colorSettings) {
+		$columnLower = strtolower($column);
+		$headerColor = $colorSettings['headerColor'];
+		
+		if (in_array($columnLower, ['no', 'id', 'nik'])) {
+			return "<th width=\"50\"{$headerColor}>{$headerLabel}</th>";
+		}
+		
+		if ('number_lists' === $columnLower) {
+			return '<th width="30"' . $headerColor . '>No</th>' .
+				   '<th width="30"' . $headerColor . '>ID</th>';
+		}
+		
+		$widthAttr = '';
+		if (!empty($config['widthColumn'][$columnLower])) {
+			$widthAttr = ' width="' . $config['widthColumn'][$columnLower] . '"';
+		}
+		
+		$columnColor = $colorSettings['columnColor'][$column] ?? '';
+		
+		return "<th{$id}{$class}{$headerColor}{$columnColor}{$widthAttr}>{$headerLabel}</th>";
+	}
 	
 	private function mergeColumns($mergeColumn = [], $columns = [], $attributes = []) {
-		$headerTable  = null;
-		$mergedTable  = null;
-		$setMergeText = '::merge::';
+		$mergeConfig = $this->prepareMergeConfiguration($mergeColumn, $columns, $attributes);
+		$modifiedColumns = $this->processColumnsForMerging($mergeConfig['columns'], $mergeConfig['mergeColumn'], $mergeConfig);
+		$mergedTable = $this->buildMergedRowTable($modifiedColumns['originalColumns'], $mergeConfig['mergeColumn'], $mergeConfig);
+		$headerTable = $this->buildMergeHeaderTable($modifiedColumns['modifiedColumns'], $mergeConfig, $attributes);
 		
-		$columns      = $this->checkColumnLabel($this->labels, $columns);
-		$dataColumns  = $this->columnManipulated;
+		return '<tr>' . $headerTable . '</tr>' . $mergedTable;
+	}
+
+	private function prepareMergeConfiguration($mergeColumn, $columns, $attributes) {
+		$columns = $this->checkColumnLabel($this->labels, $columns);
+		$dataColumns = $this->columnManipulated;
+		$colorSettings = $this->extractMergeColorSettings($attributes);
 		
-		$columnColor  = [];
-		$headerColor  = null;
+		// Extract column configuration for merged cells
+		$hiddenColumn = !empty($attributes['columns']['hidden_columns']) ? $attributes['columns']['hidden_columns'] : [];
+		$alignColumn = $this->extractAlignmentConfiguration($attributes['columns'] ?? []);
+		$widthColumn = !empty($attributes['attributes']['column_width']) ? $attributes['attributes']['column_width'] : [];
+		
+		return [
+			'mergeColumn' => $mergeColumn,
+			'columns' => $columns,
+			'dataColumns' => $dataColumns,
+			'setMergeText' => '::merge::',
+			'columnColor' => $colorSettings['columnColor'],
+			'headerColor' => $colorSettings['headerColor'],
+			'hiddenColumn' => $hiddenColumn,
+			'alignColumn' => $alignColumn,
+			'widthColumn' => $widthColumn
+		];
+	}
+
+	private function extractMergeColorSettings($attributes) {
+		$columnColor = [];
+		$headerColor = null;
+		
 		if (!empty($attributes['attributes']['bg_color'])) {
 			$tableColor = $this->backgroundColor($attributes['attributes']['bg_color']);
+			$columnColor = $tableColor['columns'] ?? [];
+			$headerColor = $tableColor['header'] ?? null;
 		}
-		if (!empty($tableColor['columns'])) $columnColor = $tableColor['columns'];
-		if (!empty($tableColor['header']))  $headerColor = $tableColor['header'];
 		
-		if (!empty($mergeColumn)) {
-			$mergedTable .= '<tr>';
-			foreach ($columns as $index => $column) {
-				$columnClass = null;
+		return [
+			'columnColor' => $columnColor,
+			'headerColor' => $headerColor
+		];
+	}
+
+	private function processColumnsForMerging($columns, $mergeColumn, $config) {
+		$originalColumns = $columns;
+		$modifiedColumns = $columns;
+		
+		foreach ($columns as $index => $column) {
+			if ($this->isColumnInMerge($column, $mergeColumn)) {
+				$mergeInfo = $this->findColumnMergeInfo($column, $mergeColumn);
+				unset($modifiedColumns[$index]);
+				$modifiedColumns[$index] = $mergeInfo['label'] . $config['setMergeText'] . $mergeInfo['counts'];
+			}
+		}
+		
+		$modifiedColumns = array_unique($modifiedColumns);
+		ksort($modifiedColumns);
+		
+		return [
+			'originalColumns' => $originalColumns,
+			'modifiedColumns' => $modifiedColumns
+		];
+	}
+
+	private function buildMergedRowTable($columns, $mergeColumn, $config) {
+		$mergedTable = '<tr>';
+		
+		foreach ($columns as $column) {
+			if ($this->isColumnInMerge($column, $mergeColumn)) {
 				$headerLabel = ucwords(str_replace('_', ' ', $column));
-				
-				if (!empty($mergeColumn)) {
-					foreach ($mergeColumn as $mergeLabel => $mergeData) {
-						foreach ($mergeData['columns'] as $merge_column) {
-							if ($column === $merge_column) {
-								if (!empty($dataColumns[$column])) $id = $this->setAttributes(['id' => diy_decrypt(diy_encrypt($dataColumns[$column]))]);
-								if (!empty($attributes['attributes']['column']['class'][$merge_column])) {
-									$columnClass = $this->setAttributes(['class' => $attributes['attributes']['column']['class'][$merge_column]]);
-									
-									// coloring background
-									if (!empty($columnColor[$column])) {
-										$mergedTable .= "<th{$id}{$columnClass}{$headerColor}{$columnColor[$column]}>{$headerLabel}</th>";
-									} else {
-										$mergedTable .= "<th{$id}{$columnClass}{$headerColor}>{$headerLabel}</th>";
-									}
-								} else {
-									if (!empty($columnColor[$column])) {
-										$mergedTable .= "<th{$id}{$headerColor}{$columnColor[$column]}>{$headerLabel}</th>";
-									} else {
-										$mergedTable .= "<th{$id}{$headerColor}>{$headerLabel}</th>";
-									}
-								}
-								
-								unset($columns[$index]);
-								$columns[$index] = $mergeLabel . $setMergeText . $mergeData['counts'];
-							}
-						}
-					}
-				}
+				$cellHtml = $this->renderMergedCell($column, $headerLabel, $config);
+				$mergedTable .= $cellHtml;
 			}
-			$mergedTable .= '</tr>';
-			
-			$columns = array_unique($columns);
-			ksort($columns);
-			
-			$headerTable .= '<tr>';
-			foreach ($columns as $index => $column) {
-				$columnClass = null;
-				$headerLabel = ucwords(str_replace('_', ' ', str_replace($setMergeText, '', $column)));
-				
-				if (!empty($dataColumns[$column])) $id = $this->setAttributes(['id' => diy_decrypt(diy_encrypt($dataColumns[$column]))]);
-				if (str_contains($column, $setMergeText)) {
-					$merge_label  = explode($setMergeText, $column);
-					$colspan      = intval($merge_label[1]);
-					$headerLabel  = ucwords(str_replace('_', ' ', $merge_label[0]));
-					$headerTable .= "<th class=\"merge-column\" colspan=\"{$colspan}\"{$headerColor}>{$headerLabel}</th>";
-				} else {
-					if ('no' === strtolower($column) || 'id' === strtolower($column) || 'nik' === strtolower($column)) {
-						$headerTable .= "<th rowspan=\"2\" width=\"50\"{$headerColor}>{$headerLabel}</th>";
-						
-					} elseif ('number_lists' === strtolower($column)) {
-						$headerTable .= "<th rowspan=\"2\" width=\"30\"{$headerColor}>No</th><th rowspan=\"2\" width=\"30\"{$headerColor}>ID</th>";
-						
-					} else {
-						$classAttributes = null;
-						if (!empty($attributes['attributes']['column']['class'][$column])) $classAttributes .= $attributes['attributes']['column']['class'][$column];						
-						if ('action' === strtolower($column))                              $classAttributes .= ' diy-column-action';						
-						if (!empty($classAttributes))                                      $columnClass = $this->setAttributes(['class' => $classAttributes]);
-						
-						$width_column = null;
-						if (!empty($attributes['attributes']['column_width'][strtolower($column)])) $width_column = ' width="' . $attributes['attributes']['column_width'][strtolower($column)] . '"';
-						
-						
-						if (!empty($columnColor[$column])) {
-							$headerTable .= "<th rowspan=\"2\"{$id}{$columnClass}{$headerColor}{$columnColor[$column]}{$width_column}>{$headerLabel}</th>";
-						} else {
-							$headerTable .= "<th rowspan=\"2\"{$id}{$columnClass}{$headerColor}{$width_column}>{$headerLabel}</th>";
-						}
-					}
-				}
+		}
+		
+		$mergedTable .= '</tr>';
+		return $mergedTable;
+	}
+
+	private function isColumnInMerge($column, $mergeColumn) {
+		foreach ($mergeColumn as $mergeData) {
+			if (in_array($column, $mergeData['columns'])) {
+				return true;
 			}
-			$headerTable .= '</tr>';
+		}
+		return false;
+	}
+
+	private function findColumnMergeInfo($column, $mergeColumn) {
+		foreach ($mergeColumn as $mergeLabel => $mergeData) {
+			if (in_array($column, $mergeData['columns'])) {
+				return [
+					'label' => $mergeLabel,
+					'counts' => $mergeData['counts']
+				];
+			}
+		}
+		return ['label' => '', 'counts' => 0];
+	}
+
+	private function renderMergedCell($column, $headerLabel, $config) {
+		$id = !empty($config['dataColumns'][$column]) ? 
+			$this->setAttributes(['id' => diy_decrypt(diy_encrypt($config['dataColumns'][$column]))]) : '';
+		
+		$columnClass = $this->getMergedCellClass($column, $config);
+		$columnColor = $config['columnColor'][$column] ?? '';
+		$headerColor = $config['headerColor'];
+		
+		return "<th{$id}{$columnClass}{$headerColor}{$columnColor}>{$headerLabel}</th>";
+	}
+
+	private function getMergedCellClass($column, $config) {
+		$classAttributes = '';
+		
+		// Check for hidden columns
+		if (!empty($config['hiddenColumn']) && in_array($column, $config['hiddenColumn'])) {
+			$classAttributes .= ' diy-hide-column';
+		}
+		
+		// Check for column alignment
+		if (!empty($config['alignColumn']['header'][$column])) {
+			$classAttributes .= ' ' . trim($config['alignColumn']['header'][$column]);
+		}
+		
+		// Special handling for action column
+		if ('action' === strtolower($column)) {
+			$classAttributes .= ' diy-column-action';
+		}
+		
+		// Check for width column classes if needed
+		if (!empty($config['widthColumn'][strtolower($column)])) {
+			$classAttributes .= ' diy-width-' . $config['widthColumn'][strtolower($column)];
+		}
+		
+		return !empty($classAttributes) ? $this->setAttributes(['class' => trim($classAttributes)]) : '';
+	}
+
+	private function buildMergeHeaderTable($columns, $config, $attributes) {
+		$headerTable = '';
+		
+		foreach ($columns as $column) {
+			$headerLabel = ucwords(str_replace('_', ' ', str_replace($config['setMergeText'], '', $column)));
+			$id = !empty($config['dataColumns'][$column]) ? 
+				$this->setAttributes(['id' => diy_decrypt(diy_encrypt($config['dataColumns'][$column]))]) : '';
 			
-			$headerTable .= $mergedTable;
+			if (str_contains($column, $config['setMergeText'])) {
+				$headerTable .= $this->renderMergeHeaderCell($column, $headerLabel, $config);
+			} else {
+				$headerTable .= $this->renderRegularMergeHeaderCell($column, $headerLabel, $id, $config, $attributes);
+			}
 		}
 		
 		return $headerTable;
+	}
+
+	private function renderMergeHeaderCell($column, $headerLabel, $config) {
+		$mergeInfo = explode($config['setMergeText'], $column);
+		$colspan = intval($mergeInfo[1]);
+		$headerLabel = ucwords(str_replace('_', ' ', $mergeInfo[0]));
+		$headerColor = $config['headerColor'];
+		
+		return "<th class=\"merge-column\" colspan=\"{$colspan}\"{$headerColor}>{$headerLabel}</th>";
+	}
+
+	private function renderRegularMergeHeaderCell($column, $headerLabel, $id, $config, $attributes) {
+		$columnLower = strtolower($column);
+		$headerColor = $config['headerColor'];
+		
+		if (in_array($columnLower, ['no', 'id', 'nik'])) {
+			return "<th rowspan=\"2\" width=\"50\"{$headerColor}>{$headerLabel}</th>";
+		}
+		
+		if ('number_lists' === $columnLower) {
+			return "<th rowspan=\"2\" width=\"30\"{$headerColor}>No</th><th rowspan=\"2\" width=\"30\"{$headerColor}>ID</th>";
+		}
+		
+		$columnClass = $this->buildMergeColumnClass($column, $attributes);
+		$widthAttr = $this->getMergeColumnWidth($column, $attributes);
+		$columnColor = $config['columnColor'][$column] ?? '';
+		
+		return "<th rowspan=\"2\"{$id}{$columnClass}{$headerColor}{$columnColor}{$widthAttr}>{$headerLabel}</th>";
+	}
+
+	private function buildMergeColumnClass($column, $attributes) {
+		$classAttributes = '';
+		
+		if (!empty($attributes['attributes']['column']['class'][$column])) {
+			$classAttributes .= $attributes['attributes']['column']['class'][$column];
+		}
+		
+		if ('action' === strtolower($column)) {
+			$classAttributes .= ' diy-column-action';
+		}
+		
+		return !empty($classAttributes) ? $this->setAttributes(['class' => $classAttributes]) : '';
+	}
+
+	private function getMergeColumnWidth($column, $attributes) {
+		$columnLower = strtolower($column);
+		if (!empty($attributes['attributes']['column_width'][$columnLower])) {
+			return ' width="' . $attributes['attributes']['column_width'][$columnLower] . '"';
+		}
+		return '';
 	}
 	
 	private function setColumnElements($name, $column_data, $columns) {
@@ -414,31 +740,61 @@ class Builder {
 	public $filter_contents  = [];
 	protected $filter_object = [];
 	private function body($data = []) {
-		$datatables  = [];
-		$name        = $data['name'];
-		$attributes  = $data['attributes'];
-		$columnData  = $data['columns'];
-		$server_side = $data['attributes']['server_side']['status'];
+		$bodyConfig = $this->prepareBodyConfiguration($data);
+		$columns = $this->prepareColumnsForBody($data, $bodyConfig);
+		$columnElements = $this->extractColumnElements($data['columns'], $data);
+		$formulaFields = $this->extractFormulaFields($data);
 		
-		$actions     = false;
-		$numbering   = false;
-		if (!empty($attributes['attributes']['table_id'])) $tableID   = $attributes['attributes']['table_id'];
-		if (!empty($attributes['actions']))                $actions   = $attributes['actions'];
-		if (!empty($attributes['numbering']))              $numbering = $attributes['numbering'];
+		$dtColumns = $this->buildDataTablesColumns($columns, $columnElements, $formulaFields, $bodyConfig);
+		$dtInfo = $this->buildDataTablesInfo($data, $dtColumns, $bodyConfig);
 		
-		$hiddenColumn = [];
-		if (!empty($data['columns']['hidden_columns'])) $hiddenColumn = $data['columns']['hidden_columns'];
+		$filterEnabled = $this->setupFiltering($dtInfo, $data, $columnElements, $bodyConfig);
+		$filterData = $filterEnabled ? $this->getFilterDataTables() : [];
 		
-		// COLUMN DATA MANIPULATION
-		$columns = $columnData['lists'];
-		if (true === $numbering) {
-			$number  = ['number_lists'];
-			$columns = array_merge($number, $columns);
+		return $this->generateFinalDataTable($bodyConfig['tableID'], $dtColumns, $dtInfo, $filterData);
+	}
+
+	private function prepareBodyConfiguration($data) {
+		$attributes = $data['attributes'];
+		
+		return [
+			'name' => $data['name'],
+			'attributes' => $attributes,
+			'columnData' => $data['columns'],
+			'server_side' => $data['attributes']['server_side']['status'],
+			'tableID' => $attributes['attributes']['table_id'] ?? null,
+			'actions' => !empty($attributes['actions']) ? $attributes['actions'] : false,
+			'numbering' => !empty($attributes['numbering']) ? $attributes['numbering'] : false,
+			'hiddenColumn' => !empty($data['columns']['hidden_columns']) ? $data['columns']['hidden_columns'] : []
+		];
+	}
+
+	private function prepareColumnsForBody($data, $config) {
+		$columns = $data['columns']['lists'];
+		
+		if (true === $config['numbering']) {
+			$columns = array_merge(['number_lists'], $columns);
 		}
-		if (!empty($actions)) array_push($columns, 'action');
 		
-		// ALIGNMENTS
+		if (!empty($config['actions'])) {
+			$columns[] = 'action';
+		}
+		
+		return $columns;
+	}
+
+	private function extractColumnElements($columnData, $data) {
+		return [
+			'alignment' => $this->extractBodyAlignment($columnData),
+			'sortable' => $this->setColumnElements('sortable', $columnData, $data),
+			'searchable' => $this->setColumnElements('searchable', $columnData, $data),
+			'clickable' => $this->setColumnElements('clickable', $columnData, $data)
+		];
+	}
+
+	private function extractBodyAlignment($columnData) {
 		$alignment = [];
+		
 		if (!empty($columnData['align'])) {
 			foreach ($columnData['align'] as $align => $col_data) {
 				if (true === $col_data['body']) {
@@ -449,252 +805,326 @@ class Builder {
 			}
 		}
 		
-		// SORTABLE
-		$sortable	= $this->setColumnElements('sortable'  , $columnData, $data);
-		// SEARCHABLE
-		$searchable	= $this->setColumnElements('searchable', $columnData, $data);
-		// CLICKABLE
-		$clickable	= $this->setColumnElements('clickable' , $columnData, $data);
-		
-		$dt_columns = [];
-		$jsonData	= [];
-		
-		$column_id  = [];
-		if (false !== $server_side) {
-			$firstField = 'id';
-			if (!in_array('id', $columns)) $firstField = $columns[1];
-			
-			$column_id['data'] = $firstField;
-			$column_id['name'] = $firstField;
-		}
-		
+		return $alignment;
+	}
+
+	private function extractFormulaFields($data) {
 		$formula_fields = [];
+		
 		if (!empty($data['attributes']['conditions']['formula'])) {
 			foreach ($data['attributes']['conditions']['formula'] as $formula) {
 				$formula_fields[$formula['name']] = $formula['name'];
 			}
 		}
 		
+		return $formula_fields;
+	}
+
+	private function buildDataTablesColumns($columns, $columnElements, $formulaFields, $config) {
+		$dt_columns = [];
+		$column_id = $this->prepareServerSideColumn($config, $columns);
+		
 		foreach ($columns as $column) {
-			$jsonData['data']       = $column;
-			$jsonData['name']       = $column;
-			$jsonData['sortable']   = false;
-			$jsonData['searchable'] = false;
-			$jsonData['class']      = 'auto-cut-text';
-			$jsonData['onclick']    = 'return false';
-			
-			if (in_array($column, $hiddenColumn)) $jsonData['class'] = 'auto-cut-text diy-hide-column';
-			
-			$formula_column = null;
-			if (!empty($formula_fields[$column])) {
-				$formula_column = $formula_fields[$column];
-			}
+			$columnConfig = $this->createBaseColumnConfig($column, $config['hiddenColumn']);
 			
 			if ('number_lists' === $column) {
-				$columnName        = 'DT_RowIndex';
-				
-				$jsonData['data']  = $columnName;
-				$jsonData['name']  = $columnName;
-				$jsonData['class'] = 'center un-clickable';
-				
-				$dt_columns[]      = $jsonData;
-				if (!empty($column_id))	{
-					$dt_columns[]  = $column_id;
-				}
-				$jsonData = [];
-				
-			} else if ($formula_column === $column) {
-				$jsonData['data'] = $column;
-				$jsonData['name'] = $column;
-				
-				if (!empty($alignment['body'][$column])) {
-					$jsonData['class'] = $jsonData['class'] . " {$alignment['body'][$column]}";
-				}
-				
-				if (!empty($clickable[$column]))  {
-					unset($jsonData['onclick']);
-					$jsonData['class'] = $jsonData['class'] . " clickable";
-				}
-				
-				$dt_columns[] = $jsonData;
-				
+				$dt_columns = array_merge($dt_columns, $this->buildNumberListsColumn($columnConfig, $column_id));
+			} elseif (!empty($formulaFields[$column])) {
+				$dt_columns[] = $this->buildFormulaColumn($columnConfig, $columnElements);
 			} else {
-				$jsonData['data'] = $column;
-				$jsonData['name'] = $column;
-				
-				if (!empty($alignment['body'][$column])) {
-					$jsonData['class'] = $jsonData['class'] . " {$alignment['body'][$column]}";
-				}
-				
-				if (!empty($sortable[$column]))   $jsonData['sortable']   = $sortable[$column];
-				if (!empty($searchable[$column])) $jsonData['searchable'] = $searchable[$column];
-				if (!empty($clickable[$column])) {
-					unset($jsonData['onclick']);
-					$jsonData['class'] = $jsonData['class'] . " clickable";
-				}
-				
-				$dt_columns[] = $jsonData;
+				$dt_columns[] = $this->buildRegularColumn($columnConfig, $columnElements);
 			}
 		}
 		
-		$new_data_columns = [];
-		foreach ($dt_columns as $dtcols) {
-			if ('DT_RowIndex' === $dtcols['name']) {
-				$new_data_columns[] = 'number_lists';
-			} else {
-				$new_data_columns[] = $dtcols['name'];
-			}
+		return $dt_columns;
+	}
+
+	private function prepareServerSideColumn($config, $columns) {
+		$column_id = [];
+		
+		if (false !== $config['server_side']) {
+			$firstField = in_array('id', $columns) ? 'id' : $columns[1];
+			$column_id['data'] = $firstField;
+			$column_id['name'] = $firstField;
 		}
 		
-		$dt_info               = [];
-		$dt_info['searchable'] = [];
-		$dt_info['name']       = $name;
-		if (!empty($data['columns']['sortable'])) $dt_info['sortable'] = $data['columns']['sortable'];
+		return $column_id;
+	}
+
+	private function createBaseColumnConfig($column, $hiddenColumns) {
+		return [
+			'data' => $column,
+			'name' => $column,
+			'sortable' => false,
+			'searchable' => false,
+			'class' => in_array($column, $hiddenColumns) ? 'auto-cut-text diy-hide-column' : 'auto-cut-text',
+			'onclick' => 'return false'
+		];
+	}
+
+	private function buildNumberListsColumn($columnConfig, $column_id) {
+		$numberColumn = $columnConfig;
+		$numberColumn['data'] = 'DT_RowIndex';
+		$numberColumn['name'] = 'DT_RowIndex';
+		$numberColumn['class'] = 'center un-clickable';
+		unset($numberColumn['onclick']);
+		
+		$columns = [$numberColumn];
+		if (!empty($column_id)) {
+			$columns[] = $column_id;
+		}
+		
+		return $columns;
+	}
+
+	private function buildFormulaColumn($columnConfig, $columnElements) {
+		return $this->applyColumnElements($columnConfig, $columnElements, false);
+	}
+
+	private function buildRegularColumn($columnConfig, $columnElements) {
+		return $this->applyColumnElements($columnConfig, $columnElements, true);
+	}
+
+	private function applyColumnElements($columnConfig, $columnElements, $applySortable) {
+		$column = $columnConfig['name'];
+		
+		// Apply alignment
+		if (!empty($columnElements['alignment']['body'][$column])) {
+			$columnConfig['class'] .= " {$columnElements['alignment']['body'][$column]}";
+		}
+		
+		// Apply sortable (only for regular columns)
+		if ($applySortable && !empty($columnElements['sortable'][$column])) {
+			$columnConfig['sortable'] = $columnElements['sortable'][$column];
+		}
+		
+		// Apply searchable
+		if (!empty($columnElements['searchable'][$column])) {
+			$columnConfig['searchable'] = $columnElements['searchable'][$column];
+		}
+		
+		// Apply clickable
+		if (!empty($columnElements['clickable'][$column])) {
+			unset($columnConfig['onclick']);
+			$columnConfig['class'] .= " clickable";
+		}
+		
+		return $columnConfig;
+	}
+
+	private function buildDataTablesInfo($data, $dtColumns, $config) {
+		$newDataColumns = $this->extractColumnNames($dtColumns);
+		
+		$dtInfo = [
+			'searchable' => [],
+			'name' => $config['name']
+		];
+		
+		if (!empty($data['columns']['sortable'])) {
+			$dtInfo['sortable'] = $data['columns']['sortable'];
+		}
+		
 		if (!empty($data['attributes']['conditions'])) {
-			$dt_info['conditions'] = $data['attributes']['conditions'];
-			$dt_info['columns']    = $new_data_columns;
+			$dtInfo['conditions'] = $data['attributes']['conditions'];
+			$dtInfo['columns'] = $newDataColumns;
 		}
 		
-		if (!empty($data['attributes']['on_load']['display_limit_rows'])) $dt_info['onload_limit_rows'] = $data['attributes']['on_load']['display_limit_rows'];
-		if (!empty($data['attributes']['fixed_columns']))                 $dt_info['fixed_columns']     = $data['attributes']['fixed_columns'];
+		if (!empty($data['attributes']['on_load']['display_limit_rows'])) {
+			$dtInfo['onload_limit_rows'] = $data['attributes']['on_load']['display_limit_rows'];
+		}
 		
-		$filter = false;
-		if (!empty($searchable)) {
-			$filter = true;
-			$dt_info['searchable'] = $data['columns']['searchable'];
-			
-			if (!empty($data['columns']['filters'])) {
-				$search_data                      = [];
-				$search_data['table_name']        = $name;
-				$search_data['searchable']        = $data['columns']['searchable'];
-				$search_data['columns']           = $data['columns']['filters'];
-				
-				$search_data['relations']         = [];
-				if (!empty($data['columns']['relations'])) {
-					$search_data['relations']     = $data['columns']['relations'];
-				}
-				
-				$search_data['foreign_keys']      = [];
-				if (!empty($data['columns']['foreign_keys'])) {
-					$search_data['foreign_keys']  = $data['columns']['foreign_keys'];
-				}
-				
-				if (!empty($data['columns']['filter_groups'])) {
-					$search_data['filter_groups'] = $data['columns']['filter_groups'];
-				}
-				
-				if (!empty($data['attributes']['filter_model'])) {
-					$search_data['filter_model']  = $data['attributes']['filter_model'];
-				}
-				
-				if (!empty($data['sql'])) {
-					$data_model = null;
-					$data_sql   = $data['sql'];
-				} else {
-					$data_model = $data['model'];
-					$data_sql   = null;
-				}
-				
-				$filterQuery = [];
-				if (!empty($this->conditions['where'])) {
-					$filterQuery = $this->conditions['where'];
-				}
-				
-				$searchInfo            = ['id' => $tableID];
-				$searchInfoAttribute   = "{$searchInfo['id']}_cdyFILTER";
-				$search_object         = new Search("{$searchInfo['id']}_cdyFILTER", $data_model, $search_data, $data_sql, $this->connection, $filterQuery);
-				$this->filter_object   = $search_object;
-				
-				$dt_info['id']         = $searchInfo['id'];
-				$dt_info['class']      = 'dt-button buttons-filter';
-				$dt_info['attributes'] = [
-					'id'               => $searchInfoAttribute,
-					'class'            => "modal fade {$tableID}",
-					'role'             => 'dialog',
-					'tabindex'         => '-1',
-					'aria-hidden'      => 'true',
-					'aria-controls'    => $tableID,
-					'aria-labelledby'  => $tableID,
-					'data-backdrop'    => 'static',
-					'data-keyboard'    => 'true'
-				];
-				$dt_info['button_label']          = '<i class="fa fa-filter"></i> Filter';
-				$dt_info['action_button_removed'] = $data['attributes']['buttons_removed'];
-				$dt_info['modal_title']           = '<i class="fa fa-filter"></i> &nbsp; Filter';
-				$dt_info['modal_content']         = $search_object->render($searchInfoAttribute, $dt_info['name'], $data['columns']['filters']);
+		if (!empty($data['attributes']['fixed_columns'])) {
+			$dtInfo['fixed_columns'] = $data['attributes']['fixed_columns'];
+		}
+		
+		return $dtInfo;
+	}
+
+	private function extractColumnNames($dtColumns) {
+		$newDataColumns = [];
+		
+		foreach ($dtColumns as $dtcols) {
+			if ('DT_RowIndex' === $dtcols['name']) {
+				$newDataColumns[] = 'number_lists';
+			} else {
+				$newDataColumns[] = $dtcols['name'];
 			}
 		}
-		$datatables[$name]['columns']    = $dt_columns;
 		
-		$this->filter_contents[$tableID] = $dt_info;
-		
-		$filter_data = [];
-		if (true === $filter) {
-			$filter_data = $this->getFilterDataTables();
+		return $newDataColumns;
+	}
+
+	private function setupFiltering(&$dtInfo, $data, $columnElements, $config) {
+		if (empty($columnElements['searchable'])) {
+			return false;
 		}
 		
-		$dt_columns = diy_clear_json(json_encode($dt_columns));
+		$dtInfo['searchable'] = $data['columns']['searchable'];
 		
-		if ('GET' === $this->method) {
-			$datatable = $this->datatables($tableID, $dt_columns, $dt_info, true, $filter_data);
-		} else {/* 
-			$post      = new Post($tableID, $dt_columns, $dt_info, true, $filter_data);
-			$datatable = $post->script(); */
-			$datatable = $this->datatables($tableID, $dt_columns, $dt_info, true, $filter_data);
+		if (!empty($data['columns']['filters'])) {
+			$this->configureSearchFilters($dtInfo, $data, $config);
 		}
 		
-		return $datatable;
+		return true;
+	}
+
+	private function configureSearchFilters(&$dtInfo, $data, $config) {
+		$searchData = $this->buildSearchData($data);
+		$searchObject = $this->createSearchObject($searchData, $data, $config);
+		
+		$searchInfo = ['id' => $config['tableID']];
+		$searchInfoAttribute = "{$searchInfo['id']}_cdyFILTER";
+		
+		$this->filter_object = $searchObject;
+		$this->filter_contents[$config['tableID']] = array_merge($dtInfo, [
+			'id' => $searchInfo['id'],
+			'class' => 'dt-button buttons-filter',
+			'attributes' => $this->buildModalAttributes($searchInfoAttribute, $config['tableID']),
+			'button_label' => '<i class="fa fa-filter"></i> Filter',
+			'action_button_removed' => $data['attributes']['buttons_removed'],
+			'modal_title' => '<i class="fa fa-filter"></i> &nbsp; Filter',
+			'modal_content' => $searchObject->render($searchInfoAttribute, $dtInfo['name'], $data['columns']['filters'])
+		]);
+	}
+
+	private function buildSearchData($data) {
+		return [
+			'table_name' => $data['name'],
+			'searchable' => $data['columns']['searchable'],
+			'columns' => $data['columns']['filters'],
+			'relations' => $data['columns']['relations'] ?? [],
+			'foreign_keys' => $data['columns']['foreign_keys'] ?? [],
+			'filter_groups' => $data['columns']['filter_groups'] ?? null,
+			'filter_model' => $data['attributes']['filter_model'] ?? null
+		];
+	}
+
+	private function createSearchObject($searchData, $data, $config) {
+		$dataModel = !empty($data['sql']) ? null : $data['model'];
+		$dataSql = !empty($data['sql']) ? $data['sql'] : null;
+		$filterQuery = $this->conditions['where'] ?? [];
+		
+		$searchInfoAttribute = "{$config['tableID']}_cdyFILTER";
+		
+		return new Search($searchInfoAttribute, $dataModel, $searchData, $dataSql, $this->connection, $filterQuery);
+	}
+
+	private function buildModalAttributes($searchInfoAttribute, $tableID) {
+		return [
+			'id' => $searchInfoAttribute,
+			'class' => "modal fade {$tableID}",
+			'role' => 'dialog',
+			'tabindex' => '-1',
+			'aria-hidden' => 'true',
+			'aria-controls' => $tableID,
+			'aria-labelledby' => $tableID,
+			'data-backdrop' => 'static',
+			'data-keyboard' => 'true'
+		];
+	}
+
+	private function generateFinalDataTable($tableID, $dtColumns, $dtInfo, $filterData) {
+		$dtColumnsJson = diy_clear_json(json_encode($dtColumns));
+		
+		// Enhanced method selection with security considerations
+		$useServerSide = true;
+		
+		// Add method info to dtInfo for Scripts.php
+		$dtInfo['http_method'] = $this->method;
+		$dtInfo['secure_mode'] = $this->secureMode;
+		
+		return $this->datatables($tableID, $dtColumnsJson, $dtInfo, $useServerSide, $filterData);
 	}
 	
 	private function getFilterDataTables() {
-		$filter_strings = null;
-		if (!empty($_GET['filters'])) {
-			$input_filters = [];
-			$_ajax_url     = 'renderDataTables';
-			foreach ($_GET as $name => $value) {
-				if ('filters'!== $name && '' !== $value) {
-					if (!is_array($value)) {
-						if (
-							$name !== $_ajax_url &&
-							$name !== 'draw'     &&
-							$name !== 'columns'  &&
-							$name !== 'order'    &&
-							$name !== 'start'    &&
-							$name !== 'length'   &&
-							$name !== 'search'   &&
-							$name !== '_token'   &&
-							$name !== '_'
-						) {
-							$input_filters[] = "infil[{$name}]={$value}";
-						}
-					}
-				}
-			}
-			
-			$filter_strings = '&filters=true&' . implode('&', $input_filters);
+		$requestData = $this->getRequestData();
+		
+		if (empty($requestData['filters'])) {
+			return null;
 		}
 		
-		return $filter_strings;
+		$inputFilters = $this->extractValidFilterParams($requestData);
+		return empty($inputFilters) ? null : '&filters=true&' . implode('&', $inputFilters);
+	}
+
+	private function getRequestData() {
+		// Support both GET and POST methods
+		return 'POST' === $this->method ? $_POST : $_GET;
+	}
+
+	private function extractValidFilterParams($requestData = null) {
+		if ($requestData === null) {
+			$requestData = $this->getRequestData();
+		}
+		
+		$inputFilters = [];
+		$excludedParams = $this->getExcludedFilterParams();
+		
+		foreach ($requestData as $name => $value) {
+			if ($this->isValidFilterParam($name, $value, $excludedParams)) {
+				$inputFilters[] = "infil[{$name}]={$value}";
+			}
+		}
+		
+		return $inputFilters;
+	}
+
+	private function getExcludedFilterParams() {
+		return [
+			'filters', 'renderDataTables', 'draw', 'columns', 
+			'order', 'start', 'length', 'search', '_token', '_'
+		];
+	}
+
+	private function isValidFilterParam($name, $value, $excludedParams) {
+		return $name !== 'filters' 
+			&& $value !== '' 
+			&& !is_array($value) 
+			&& !in_array($name, $excludedParams);
 	}
 	
 	private function backgroundColor($attributes = []) {
-		if (!empty($attributes)) {
-			$tableDataColor = [];
-			foreach ($attributes as $colorCode => $dataColor) {
-				if (!empty($dataColor['text'])) $textColor = " color:{$dataColor['text']};";
-				if (!empty($dataColor['columns'])) {
-					foreach ($dataColor['columns'] as $columnName) {
-						$tableDataColor['columns'][$columnName] = $this->setAttributes(['style' => "background-color:{$colorCode} !important;{$textColor}"]);
-					}
-				}
-				
-				if (empty($dataColor['columns'])) {
-					if (true === $dataColor['header']) $tableDataColor['header'] = $this->setAttributes(['style' => "background-color:{$colorCode} !important;{$textColor}"]);
-				}
-			}
-			
-			return $tableDataColor;
+		if (empty($attributes)) {
+			return null;
 		}
+		
+		$tableDataColor = [];
+		
+		foreach ($attributes as $colorCode => $dataColor) {
+			$this->processColorConfiguration($colorCode, $dataColor, $tableDataColor);
+		}
+		
+		return $tableDataColor;
+	}
+
+	private function processColorConfiguration($colorCode, $dataColor, &$tableDataColor) {
+		$textColor = $this->extractTextColor($dataColor);
+		
+		if (!empty($dataColor['columns'])) {
+			$this->applyColumnColors($colorCode, $dataColor['columns'], $textColor, $tableDataColor);
+		}
+		
+		if (empty($dataColor['columns']) && isset($dataColor['header']) && true === $dataColor['header']) {
+			$this->applyHeaderColor($colorCode, $textColor, $tableDataColor);
+		}
+	}
+
+	private function extractTextColor($dataColor) {
+		return !empty($dataColor['text']) ? " color:{$dataColor['text']};" : '';
+	}
+
+	private function applyColumnColors($colorCode, $columns, $textColor, &$tableDataColor) {
+		foreach ($columns as $columnName) {
+			$tableDataColor['columns'][$columnName] = $this->setAttributes([
+				'style' => "background-color:{$colorCode} !important;{$textColor}"
+			]);
+		}
+	}
+
+	private function applyHeaderColor($colorCode, $textColor, &$tableDataColor) {
+		$tableDataColor['header'] = $this->setAttributes([
+			'style' => "background-color:{$colorCode} !important;{$textColor}"
+		]);
 	}
 	
 	private function setAttributes($attributes = []) {

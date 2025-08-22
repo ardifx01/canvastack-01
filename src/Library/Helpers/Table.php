@@ -274,6 +274,7 @@ if (!function_exists('diy_modal_content_html')) {
 	
 	function diy_modal_content_html($name, $title, $elements) {
 		$buttonID = str_replace('_cdyFILTERmodalBOX', '_submitFilterButton', $name);
+		$tableId = str_replace('_cdyFILTERmodalBOX', '', $name);
 		
 		$html  = '<div class="modal-body">';
 			$html .= '<div id="' . $name . '">';
@@ -283,7 +284,7 @@ if (!function_exists('diy_modal_content_html')) {
 		$html .= '<div class="modal-footer">';
 			$html .= '<div class="diy-action-box">';
 				$html .= '<button type="reset" id="' . $name . '-cancel" class="btn btn-danger btn-slideright pull-right" data-dismiss="modal">Cancel</button>';
-				$html .= '<button id="' . $buttonID . '" class="btn btn-primary btn-slideright pull-right" type="submit">';
+				$html .= '<button id="' . $buttonID . '" class="btn btn-primary btn-slideright pull-right diy-ajax-filter-btn" type="submit" data-table-id="' . $tableId . '">';
 					$html .= '<i class="fa fa-filter"></i> &nbsp; Filter Data ' . $title;
 				$html .= '</button>';
 				$html .= '<button id="exportFilterButton' . $name . '" class="btn btn-info btn-slideright pull-right btn-export-csv hide" type="button">Export to CSV</button>';

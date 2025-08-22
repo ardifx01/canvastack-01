@@ -67,30 +67,48 @@ trait View {
 		
 		$this->addScriptsFromElements();
 		
-		// RENDER DATATABLES
-		if (!empty($this->data['components']->table->method) && 'post' === strtolower($this->data['components']->table->method)) {
-			// RENDER DATATABLES WITH METHOD POST
+		// RENDER DATATABLES - Enhanced to handle both GET and POST methods
+		$isPostMethod = !empty($this->data['components']->table->method) && 'post' === strtolower($this->data['components']->table->method);
+		$hasRenderDataTablesGET = !empty($_GET['renderDataTables']) && 'false' != $_GET['renderDataTables'];
+		$hasRenderDataTablesPOST = !empty($_POST['renderDataTables']) && 'false' != $_POST['renderDataTables'];
+		
+		// Check for DataTables AJAX request (both GET and POST)
+		$isDataTablesAjaxGET = !empty($_GET['draw']) && !empty($_GET['columns']);
+		$isDataTablesAjaxPOST = !empty($_POST['draw']) && !empty($_POST['columns']);
+		
+		\Log::info("🔍 DataTables request detection", [
+			'hasRenderDataTablesGET' => $hasRenderDataTablesGET,
+			'hasRenderDataTablesPOST' => $hasRenderDataTablesPOST,
+			'isDataTablesAjaxGET' => $isDataTablesAjaxGET,
+			'isDataTablesAjaxPOST' => $isDataTablesAjaxPOST,
+			'GET_renderDataTables' => $_GET['renderDataTables'] ?? 'not_set',
+			'POST_renderDataTables' => $_POST['renderDataTables'] ?? 'not_set',
+			'GET_draw' => $_GET['draw'] ?? 'not_set',
+			'POST_draw' => $_POST['draw'] ?? 'not_set',
+			'method' => $_SERVER['REQUEST_METHOD'] ?? 'unknown',
+			'request_uri' => $_SERVER['REQUEST_URI'] ?? 'unknown'
+		]);
+
+		if ($hasRenderDataTablesGET || $hasRenderDataTablesPOST || $isDataTablesAjaxGET || $isDataTablesAjaxPOST) {
+			// Handle AJAX requests for both GET and POST methods
 			$filter_datatables = [];
 			if (!empty($this->model_filters)) {
 				$filter_datatables = $this->model_filters;
 			}
 			
-			$method = [
-				'method' => 'post',
-				'renderDataTables' => true,
-				'difta' => ['name' => array_keys($this->data['components']->table->model)[0], 'source' => 'dynamics']
-			];
-			
-			$this->initRenderDatatables($method, $this->data['components']->table, $filter_datatables);
-			
-		} else {
-			if (!empty($_GET['renderDataTables']) && 'false' != $_GET['renderDataTables']) {
-				// RENDER DATATABLES WITH METHOD GET
-				$filter_datatables = [];
-				if (!empty($this->model_filters)) {
-					$filter_datatables = $this->model_filters;
-				}
+			if ($hasRenderDataTablesPOST || $isDataTablesAjaxPOST || ($isPostMethod && ($isDataTablesAjaxPOST || $hasRenderDataTablesPOST))) {
+				// RENDER DATATABLES WITH METHOD POST
+				$method = [
+					'method' => 'post',
+					'renderDataTables' => true,
+					'difta' => $_POST['difta'] ?? ['name' => array_keys($this->data['components']->table->model)[0], 'source' => 'dynamics']
+				];
 				
+				// Merge POST data for processing
+				$postData = array_merge($_POST, $method);
+				return $this->initRenderDatatables($postData, $this->data['components']->table, $filter_datatables);
+			} else {
+				// RENDER DATATABLES WITH METHOD GET
 				return $this->initRenderDatatables($_GET, $this->data['components']->table, $filter_datatables);
 			}
 		}
@@ -191,19 +209,8 @@ trait View {
 			}
 			
 			$DataTables = new Datatables();
-			if (!empty($method['method']) && 'post' === $method['method']) {
-				$initRenderDatatablePost['datatables'] = [
-					'method'           => $method['method'],
-					'renderDataTables' => $method['renderDataTables'],
-					'difta'            => $method['difta'], 
-					'datatables'       => $datatables, 
-					'filters'          => $filters, 
-					'model_filters'    => $model_filters						
-				];
-				
-				return $this->setObjectInjection($initRenderDatatablePost);
-			}
 			
+			// Process both GET and POST methods uniformly through DataTables->process()
 			return $DataTables->process($method, $datatables, $filters, $model_filters);
 		}
 	}

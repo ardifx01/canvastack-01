@@ -123,12 +123,14 @@ trait Action {
 	private $objectInjection = [];
 	public function setObjectInjection($object) {
 		$this->objectInjection = $object;
-		dd($object);
+		// Removed dd() to allow proper flow continuation
+		return $this->objectInjection;
 	}
 	
 	private function CHECK_DATATABLES_ACCESS_PROCESSOR() {
 		if (!empty($_POST['draw']) && !empty($_POST['columns'][0]['data']) && !empty($_POST['length'])) {
-			dd($this->objectInjection);
+			// Process POST DataTables request - removed dd() for proper handling
+			return $this->objectInjection;
 		}
 	}
 	

@@ -7,6 +7,7 @@ use Incodiy\Codiy\Library\Components\Table\Craft\Export;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Incodiy\Codiy\Library\Components\Chart\Charts;
+use Incodiy\Codiy\Library\Components\Table\Craft\DatatableRuntime;
 
 /**
  * Created on Sep 23, 2022
@@ -22,11 +23,221 @@ use Incodiy\Codiy\Library\Components\Chart\Charts;
 
 class AjaxController extends Controller {
 	
-	private $ajaxConnection = null;
+	public $ajaxConnection = null;
 	
 	public function __construct($connection = null) {
 		if (!empty($connection)) $this->ajaxConnection = $connection;
 	}
+	
+    public function post() {
+        try {
+            // 1) Prioritaskan POST DataTables
+            if (!empty($_POST['renderDataTables']) && $_POST['renderDataTables'] === 'true') {
+                // Normalisasi
+                $method = $_POST;
+                if (isset($_POST['difta[name]']))  $method['difta']['name']   = $_POST['difta[name]'];
+                if (isset($_POST['difta[source]']))$method['difta']['source'] = $_POST['difta[source]'];
+
+                $diftaName = $method['difta']['name'] ?? ($_POST['difta[name]'] ?? null);
+                if (empty($diftaName)) {
+                    return response()->json(['error' => 'Missing difta name'], 400);
+                }
+
+                // Coba runtime → jika tidak ada, fallback
+                $dataObject = DatatableRuntime::get((string) $diftaName);
+                $datatables = new Datatables();
+                // Declarative Relations API: hydrate declared_relations & dot_columns from runtime
+                try {
+                    if (!empty($dataObject->datatables->declared_relations)) {
+                        $method['declared_relations'] = $dataObject->datatables->declared_relations;
+                    }
+                    if (!empty($dataObject->datatables->dot_columns)) {
+                        $method['dot_columns'] = $dataObject->datatables->dot_columns;
+                    }
+                } catch (\Throwable $e) {}
+
+                if ($dataObject) {
+                    return $datatables->process($method, $dataObject, $_POST, []);
+                }
+
+                // Fallback (legacy) — tidak tergantung runtime
+                $_GET['filterDataTables'] = $_GET['filterDataTables'] ?? 'true';
+                return $datatables->init_filter_datatables($_GET, $_POST, null);
+            }
+
+            // 2) Jalur lama GET
+            if (!empty($_GET['AjaxPosF']))        return $this->post_filters();
+            if (!empty($_GET['diyHostConn']))     return $this->getHostConnections();
+            if (!empty($_GET['diyHostProcess']))  return $this->getHostProcess();
+            if (!empty($_GET['filterDataTables'])) {
+                $datatables = new Datatables();
+                return $datatables->init_filter_datatables($_GET, $_POST, null);
+            }
+            if (!empty($_GET['filterCharts'])) {
+                $charts = new Charts();
+                return $charts->init_filter_charts($_GET, $_POST, null);
+            }
+
+            // 3) Default JSON valid
+            return response()->json([
+                'draw' => (int)($_POST['draw'] ?? 0),
+                'recordsTotal' => 0,
+                'recordsFiltered' => 0,
+                'data' => []
+            ], 200);
+
+        } catch (\Throwable $e) {
+            \Log::error('AjaxController@post failed', [
+                'message' => $e->getMessage(),
+                'post' => $_POST,
+                'get' => $_GET,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json(['error' => 'Server error'], 500);
+        }
+    }
+
+    public function postX4() {
+        try {
+            // 1) Prioritaskan POST DataTables
+            if (!empty($_POST['renderDataTables']) && $_POST['renderDataTables'] === 'true') {
+
+                // Normalisasi input
+                $method = $_POST;
+                if (isset($_POST['difta[name]']))  $method['difta']['name']   = $_POST['difta[name]'];
+                if (isset($_POST['difta[source]']))$method['difta']['source'] = $_POST['difta[source]'];
+
+                $diftaName = $method['difta']['name'] ?? ($_POST['difta[name]'] ?? null);
+                if (empty($diftaName)) {
+                    return response()->json(['error' => 'Missing difta name'], 400);
+                }
+
+                // Coba ambil runtime; jika tidak ada -> fallback ke init_filter_datatables
+                $dataObject = DatatableRuntime::get((string) $diftaName);
+                if ($dataObject) {
+                    $datatables = new Datatables();
+                    return $datatables->process($method, $dataObject, $_POST, []);
+                } else {
+                    // Fallback (legacy) — tidak tergantung runtime
+                    $datatables = new Datatables();
+                    $_GET['filterDataTables'] = $_GET['filterDataTables'] ?? 'true';
+                    return $datatables->init_filter_datatables($_GET, $_POST, null);
+                }
+            }
+
+            // 2) Jalur lama GET
+            if (!empty($_GET['AjaxPosF']))        return $this->post_filters();
+            if (!empty($_GET['diyHostConn']))     return $this->getHostConnections();
+            if (!empty($_GET['diyHostProcess']))  return $this->getHostProcess();
+            if (!empty($_GET['filterDataTables'])) {
+                $datatables = new Datatables();
+                return $datatables->init_filter_datatables($_GET, $_POST, null);
+            }
+            if (!empty($_GET['filterCharts'])) {
+                $charts = new Charts();
+                return $charts->init_filter_charts($_GET, $_POST, null);
+            }
+
+            // 3) Default JSON valid
+            return response()->json([
+                'draw' => (int)($_POST['draw'] ?? 0),
+                'recordsTotal' => 0,
+                'recordsFiltered' => 0,
+                'data' => []
+            ], 200);
+
+        } catch (\Throwable $e) {
+            \Log::error('AjaxController@post failed', [
+                'message' => $e->getMessage(),
+                'post' => $_POST,
+                'get' => $_GET,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json(['error' => 'Server error'], 500);
+        }
+    }
+
+	public function postX3() {
+        try {
+			
+            // 1) Tangani DataTables via POST terlebih dahulu
+            if (!empty($_POST['renderDataTables']) && $_POST['renderDataTables'] === 'true') {
+                $this->datatableClass();
+
+                // Normalisasi input
+                $method = $_POST;
+                if (isset($_POST['difta[name]'])) {
+                    $method['difta']['name'] = $_POST['difta[name]'];
+                }
+                if (isset($_POST['difta[source]'])) {
+                    $method['difta']['source'] = $_POST['difta[source]'];
+                }
+
+                // Ambil nama difta dengan aman
+                $diftaName = $method['difta']['name'] ?? ($_POST['difta[name]'] ?? null);
+                if (empty($diftaName)) {
+                    return response()->json(['error' => 'Missing difta name'], 400);
+                }
+
+                // Ambil konteks runtime yang didaftarkan saat Builder render tabel
+                $dataObject = DatatableRuntime::get((string) $diftaName);
+                if (!$dataObject) {
+                    \Log::error('Datatable runtime context unavailable', ['post' => $_POST, 'difta' => $diftaName]);
+                    return response()->json(['error' => 'Datatable context missing'], 500);
+                }
+
+                // Proses DataTables
+				if (!empty($_POST)) {
+					$filters = $_POST;
+					return $this->datatables->process($method, $dataObject, $filters, []);
+				}
+
+				// Default: kembalikan JSON valid DataTables agar tidak memicu alert
+				return response()->json([
+					'draw' => (int)($_POST['draw'] ?? 0),
+					'recordsTotal' => 0,
+					'recordsFiltered' => 0,
+					'data' => []
+				], 200);
+            }
+
+            // 2) Jalur lama berbasis GET flags (tetap didukung)
+            if (!empty($_GET['AjaxPosF'])) {
+                return $this->post_filters();
+            }
+            if (!empty($_GET['diyHostConn'])) {
+                return $this->getHostConnections();
+            }
+            if (!empty($_GET['diyHostProcess'])) {
+                return $this->getHostProcess();
+            }
+            if (!empty($_GET['filterDataTables'])) {
+                $this->datatableClass();
+                return $this->datatables->init_filter_datatables($_GET, $_POST, $this->ajaxConnection);
+            }
+            if (!empty($_GET['filterCharts'])) {
+                $this->chartClass(); // penting: gunakan chartClass, bukan datatableClass
+                return $this->charts->init_filter_charts($_GET, $_POST, $this->ajaxConnection);
+            }
+
+            // 3) Default: kembalikan JSON valid DataTables agar tidak memicu alert
+            return response()->json([
+                'draw' => (int)($_POST['draw'] ?? 0),
+                'recordsTotal' => 0,
+                'recordsFiltered' => 0,
+                'data' => []
+            ], 200);
+
+        } catch (\Throwable $e) {
+            \Log::error('AjaxController@post failed', [
+                'message' => $e->getMessage(),
+                'post' => $_POST,
+                'get' => $_GET,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json(['error' => 'Server error'], 500);
+        }
+    }
 		
 	public static $ajaxUrli;
 	/**
@@ -58,7 +269,7 @@ class AjaxController extends Controller {
 		}
 	}
 	
-	public function post() {
+	public function postXample() {
 		if (!empty($_GET)) {
 			if (!empty($_GET['AjaxPosF'])) {
 				return $this->post_filters();
@@ -73,6 +284,84 @@ class AjaxController extends Controller {
 			}
 		}
 	}
+
+	/**
+	 * Handle AJAX POST requests.
+	 *
+	 * This method handles incoming POST requests and checks for the following
+	 * conditions:
+	 *
+	 * 1. If the request is a filter request, redirect to {@link post_filters()}.
+	 * 2. If the request is a host connection request, redirect to {@link getHostConnections()}.
+	 * 3. If the request is a host process request, redirect to {@link getHostProcess()}.
+	 * 4. If the request is a DataTables rendering request, handle it via POST.
+	 *
+	 * @return \Illuminate\Http\Response
+	 */
+	public function postX2() {
+
+		/*
+		return response()->json([
+			'draw' => (int)($_POST['draw'] ?? 0),
+			'recordsTotal' => 0,
+			'recordsFiltered' => 0,
+			'data' => $_POST['renderDataTables']
+		], 200);
+		*/
+		
+		if (!empty($_GET)) {
+			if (!empty($_GET['AjaxPosF'])) {
+				return $this->post_filters();
+			} elseif (!empty($_GET['diyHostConn'])) {
+				return $this->getHostConnections();
+			} elseif (!empty($_GET['diyHostProcess'])) {
+				return $this->getHostProcess();
+			} elseif (!empty($_GET['filterDataTables'])) {
+				return $this->initFilterDatatables($_GET, $_POST);
+			} elseif (!empty($_GET['filterCharts'])) {
+				return $this->initFilterCharts($_GET, $_POST);
+			}
+		}
+
+		
+		// NEW: handle DataTables rendering via POST
+		if (!empty($_POST['renderDataTables']) && $_POST['renderDataTables'] === 'true') {
+			$this->datatableClass();
+
+			// Normalize input for Datatables::initializeModel
+			$method = $_POST;
+			if (isset($_POST['difta[name]'])) {
+				$method['difta']['name'] = $_POST['difta[name]'];
+			}
+			if (isset($_POST['difta[source]'])) {
+				$method['difta']['source'] = $_POST['difta[source]'];
+			}
+			
+			\Log::debug('DT POST incoming', ['difta' => $diftaName, 'post' => $_POST]);
+			// TODO: ambil $data context datatable dari registry runtime saat Builder render tabel
+			$dataObject = DatatableRuntime::get((string) $diftaName);
+			if (!$dataObject) {
+				\Log::error('Datatable runtime context unavailable', ['post' => $_POST]);
+				return response()->json(['error' => 'Datatable context missing'], 500);
+			}
+
+			try {
+				$filters = $_POST;
+				$result = $this->datatables->process($method, $dataObject, $filters, []);
+				return $result;
+			} catch (\Throwable $e) {
+				\Log::error('DataTables POST processing failed', [
+					'message' => $e->getMessage(),
+					'post' => $_POST,
+					'trace' => $e->getTraceAsString()
+				]);
+				return response()->json(['error' => 'DataTables processing error'], 500);
+			}
+		}
+
+		return response()->json(['error' => 'Invalid AJAX request'], 400);
+	}
+
 	
 	private function getHostProcess() {
 		unset($_POST['_token']);
@@ -197,7 +486,7 @@ class AjaxController extends Controller {
 	}
 	
 	private $datatables = [];
-	private function datatableClass() {
+	public function datatableClass() {
 		$this->datatables = new Datatables();
 	}
 	

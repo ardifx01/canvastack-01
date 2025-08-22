@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mantra.smartfren.dev/schemas/datatables.v1.response.schema.json",
+  "title": "Datatables Response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "draw": {"type": "integer"},
+    "recordsTotal": {"type": "integer", "minimum": 0},
+    "recordsFiltered": {"type": "integer", "minimum": 0},
+    "data": {
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {"type": "string"},
+              "type": {"type": "string"},
+              "visible": {"type": "boolean"}
+            },
+            "required": ["name"]
+          }
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "key": {"type": "string"},
+              "label": {"type": "string"},
+              "method": {"type": "string"},
+              "url": {"type": "string"}
+            },
+            "required": ["key", "label"]
+          }
+        }
+      }
+    }
+  },
+  "required": ["recordsTotal", "recordsFiltered", "data"]
+}

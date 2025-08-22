@@ -1,83 +1,115 @@
-بِسْمِ ٱللَّٰهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ
------------------------------
+# Incodiy/Codiy — Enterprise Admin Framework
+(Transitioning to CanvasStack)
 
-وَٱعْتَصِمُوا۟ بِحَبْلِ ٱللَّهِ
+**Current Status**: Active Development - Phase 2 (Hardening & Architecture Refinement)
+**Next Major Release**: Rebranding to canvastack/canvastack
 
+## Overview
+A comprehensive enterprise-grade framework for building robust administrative systems, featuring advanced server-side DataTables integration, dynamic form generation, sophisticated charting capabilities, and flexible templating systems. Built with scalability, security, and maintainability at its core.
 
-In the name of ALLAH SWT,
------------------------------
+### Key Strengths
+- Enterprise-grade server-side DataTables with advanced filtering
+- Dynamic form generation with comprehensive validation
+- Flexible templating system with inheritance support
+- Built-in security features and authentication
+- Extensive configurability and customization options
 
-![alt img](https://avatars.githubusercontent.com/u/86165096?s=256&v=4)
+## Core Components & Architecture
 
-Alhamdulillah because of Allah SWT, this code successfully created piece by piece start from Mar 29, 2017.
+### DataTables Engine (Library/Components/Table)
+- Advanced server-side processing with memory optimization
+- Comprehensive filtering system (POST/GET with special character handling)
+- Dynamic column management and relationship handling
+- Custom data formatters and processors
+- Legacy system compatibility layer
 
-This library used for simplifying some code with Laravel framework, hopefully can help us all to build web-app. This code inspired by Muntilan-CMS code developed by [.::bit](https://www.limabit.com), by the way.
+### Form Builder (Library/Components/Form)
+- Dynamic form generation with 50+ field types
+- Advanced validation with custom rules support
+- AJAX submission and real-time validation
+- File upload handling with image processing
+- Multi-step form wizard support
 
+### Template System (Library/Components/Template)
+- Hierarchical template inheritance
+- Dynamic layout composition
+- Component-based structure
+- Theme support with hot-reload
+- Mobile-responsive frameworks integration
 
-1). INSTALL LARAVEL (Max : Version 10)
---------------------------------------------------------------------------------
-	composer create-project --prefer-dist laravel/laravel:10.0 incodiy (webappname)
- 	cd incodiy/ [cd webappname/]
+### Security Layer
+- Role-based access control (RBAC)
+- Permission management system
+- Request validation and sanitization
+- XSS protection and CSRF handling
+- API authentication support
 
+## Latest: Table Component Hardening & Performance (v2.2.2)
+- Flexible default ordering: user can set order; fallback to id/primary-like columns; safe default maintained
+- Search delay tuned to 500ms to reduce request spam
+- Lazy column reflow on tab activation for multi-table pages
+- Optional logging guard via config: set `datatables.debug=false` to silence verbose logs
+- See detailed docs in: Library/Components/Table/docs/
 
-2). INSTALL LIBRARY WITH JSON FILE SETTING OR VIA COMPOSER CLI:
---------------------------------------------------------------------------------
-	WITH JSON FILE:
- 	
-	"require": {
-		"incodiy/codiy": "dev-master"
-	},
-	"repositories": [{
-		"type" : "vcs",
-		"url"  : "git@github.com:incodiy/codiy.git"
-	}]
+## Documentation
+- Table docs: vendor/incodiy/codiy/src/Library/Components/Table/docs/
+  - README.md — feature overview and usage
+  - GET_POST_FILTERING_BUGFIX_ANALYSIS_AND_HARDENING.md
+  - TABLE_FEATURES_MATRIX.md
+  - REFRACTORING_AND_HARDENING_PLAN.md
+  - CHANGELOG.md
+  - UNIVERSAL_DATA_SOURCE_GUIDE.md
+  - API_REFERENCE.md
 
- 	
-  	OR VIA COMPOSER
-   	
-	Just type this code: composer require incodiy/codiy
+## Configuration
+- data-providers.php — model registry, defaults, auto discovery
 
-3). COMPOSER UPDATE
---------------------------------------------------------------------------------
-	composer update
+## Development Roadmap
 
+### Phase 2: Architecture Hardening (Current)
+- Comprehensive test suite implementation
+- Configuration externalization and validation
+- Performance optimization and memory footprint reduction
+- Enhanced error handling and logging
+- Security audit and improvements
 
-4). ARTISAN PUBLISH
---------------------------------------------------------------------------------
-	php artisan vendor:publish --force
+### Phase 3: Advanced Features & Integrations
+- Schema-aware auto-discovery system
+- Advanced operator mapping for queries
+- Relationship manifest and graph processing
+- Real-time data updates via WebSocket
+- Enhanced caching strategies
 
+### Phase 4: Enterprise Ready
+- Complete removal of table-specific logic
+- Pipeline-based data processing
+- Comprehensive testing (Unit, Integration, E2E)
+- Enterprise deployment guides
+- Performance benchmarking tools
 
-5). CHECK DATABASE
---------------------------------------------------------------------------------
-	Check file path database/migrations/2014_10_12_000000_create_users_table.php (delete it!)
- 	
- 	Change db name (DB_DATABASE) in .env file
-  	
-  	Create your database name in mysql
+## Transition to CanvasStack
 
+### Technical Migration
+- Namespace migration with backward compatibility
+- Modern PHP 8.x features adoption
+- PSR standards compliance
+- Dependency injection optimization
+- Service container integration
 
-6). MIGRATION TABLES
---------------------------------------------------------------------------------
-	php artisan migrate:refresh --seed
+### Documentation & Support
+- Comprehensive API documentation
+- Migration guides for existing systems
+- Best practices and architecture guides
+- Performance optimization guides
+- Security implementation guides
 
+## Contributing
+- Use feature branches; write tests for bugfixes and features
+- PRs must update docs and changelog entries
 
-7). CONFIG FILE
---------------------------------------------------------------------------------
-	Change baseURL path in config file with your own path [ config/diy.settings.php in line:35 ]
+## Versioning
+- Semantic Versioning (MAJOR.MINOR.PATCH)
+- CHANGELOG kept in Table docs for component-level; package-level will be added during rebrand
 
-
-8). DEMO ACCESS
---------------------------------------------------------------------------------
-	url     : http://localhost/webappname
-	username: admin@gmail.com
-	password: @admin
-	
---------------------------------------------------------------------------------
-Visit the demo site at [demo.incodiy.com](https://demo.incodiy.com/login)
-
-
-
-
-DOCUMENTATION
---------------------------------------------------------------------------------
-	On Progress
+## License
+MIT

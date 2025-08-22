@@ -525,15 +525,31 @@ if (!function_exists('diy_array_insert_new')) {
 if (!function_exists('diy_array_insert')) {
 	
 	function diy_array_insert(&$array, $position, $insert) {
+		// Ensure $array is actually an array
+		if (!is_array($array)) {
+			$array = [];
+		}
+		
 		if (is_int($position)) {
+			// Ensure position is not negative
+			$position = max(0, $position);
 			array_splice($array, $position, 0, $insert);
 		} else {
-			$pos   = array_search($position, array_keys($array));
-			$array = array_merge (
-				array_slice($array, 0, $pos),
-				$insert,
-				array_slice($array, $pos)
-			);
+			$pos = array_search($position, array_keys($array));
+			if ($pos !== false) {
+				$array = array_merge (
+					array_slice($array, 0, $pos),
+					$insert,
+					array_slice($array, $pos)
+				);
+			} else {
+				// If position not found, append to end
+				if (is_array($insert)) {
+					$array = array_merge($array, $insert);
+				} else {
+					$array[] = $insert;
+				}
+			}
 		}
 	}
 }
@@ -1590,7 +1606,6 @@ if (!function_exists('diy_mappage_button_add')) {
 		$o  = "<div id='{$node_btn}' class='action-buttons-box'>";
 			$o .= "<div class='hidden-sm hidden-xs action-buttons'>";
 				$o .= "<a id='plusn{$node_btn}' class='btn btn-success btn-xs btn_view'><i class='fa fa-plus-circle' aria-hidden='true'></i></a>";
-			//	$o .= "<a id='plusr{$node_btn}' class='btn teal btn-xs btn_view color-white' style=\"color: white !important;\"><i class='fa fa-plus' aria-hidden='true'></i></a>";
 				$o .= "<a id='reset{$node_btn}' class='btn btn-danger btn-xs btn_view'><i class='fa fa-recycle' aria-hidden='true'></i></a>";
 			$o .= "</div>";
 		$o .= "</div>";

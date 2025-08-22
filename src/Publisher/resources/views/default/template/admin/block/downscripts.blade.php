@@ -30,3 +30,41 @@ if (!empty($components->template->scripts['js']['bottom_last'])) $scripts['botto
 	@foreach ($scripts['bottom_last'] as $script)
 	{!! $script->html !!}
 	@endforeach
+
+	<!-- CSRF Token Fallback and AJAX Setup -->
+	<script type="text/javascript">
+	$(document).ready(function() {
+	    // Ensure CSRF token is available for AJAX requests
+	    var csrfToken = $('meta[name="csrf-token"]').attr('content');
+	    
+	    // Fallback: Get CSRF token via AJAX if meta tag is missing
+	    if (!csrfToken) {
+	        console.warn('🚨 CSRF meta tag missing - fetching token via AJAX...');
+	        
+	        $.get('/csrf-token', function(data) {
+	            if (data && data.token) {
+	                $('head').append('<meta name="csrf-token" content="' + data.token + '">');
+	                console.log('✅ CSRF token added via fallback:', data.token);
+	                
+	                // Setup global AJAX CSRF token
+	                $.ajaxSetup({
+	                    headers: {
+	                        'X-CSRF-TOKEN': data.token
+	                    }
+	                });
+	            }
+	        }).fail(function() {
+	            console.error('❌ Could not retrieve CSRF token via fallback');
+	        });
+	    } else {
+	        console.log('✅ CSRF token found in meta tag:', csrfToken);
+	        
+	        // Setup global AJAX CSRF token
+	        $.ajaxSetup({
+	            headers: {
+	                'X-CSRF-TOKEN': csrfToken
+	            }
+	        });
+	    }
+	});
+	</script>

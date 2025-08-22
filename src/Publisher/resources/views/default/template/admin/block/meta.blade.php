@@ -29,6 +29,9 @@ if (!empty($components->template->scripts['css']['bottom_last'])) {
 ?>
 	<link rel="shortcut icon" href="{{ asset('favicon.ico') }}" />
 	
+	<!-- CSRF Token for AJAX requests -->
+	<meta name="csrf-token" content="{{ csrf_token() }}">
+	
 	<!-- MetaTags  -->
 	@foreach ($meta as $metaTags)
 		{!! $metaTags !!}

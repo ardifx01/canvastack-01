@@ -12,7 +12,8 @@ class User extends Authenticatable {
 	
 	protected $table = 'users';
 	
-	public $groupInfo;
+	// Remove conflicting property - conflicts with database column group_info
+	// public $groupInfo;
 	
 	/**
 	 * Bypassing all fields can be insert with data
@@ -28,7 +29,14 @@ class User extends Authenticatable {
 	 */
 	protected $hidden  = [ 
 		'password', 
-		'remember_token'
+		'remember_token',
+		// Hide Laravel internal model properties
+		'incrementing',
+		'preventsLazyLoading', 
+		'exists',
+		'wasRecentlyCreated',
+		'timestamps',
+		'usesUniqueIds'
 	];
 	
 	protected $dates   = ['deleted_at'];
@@ -92,7 +100,7 @@ class User extends Authenticatable {
 		}
 		
 		$user_info = DB::table('users')
-			->select('users.*', 'base_user_group.group_id', 'base_group.group_name', 'base_group.group_info')
+			->select('users.*', 'base_user_group.group_id', 'base_group.group_name', 'base_group.group_alias', 'base_group.group_info')
 			->join('base_user_group', 'users.id', '=', 'base_user_group.user_id')
 			->join('base_group', 'base_group.id', '=', 'base_user_group.group_id')
 			->where($f1, $f2, $f3);

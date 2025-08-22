@@ -1,0 +1,1131 @@
+<?php
+
+namespace Incodiy\Codiy\Library\Components\Table\Craft;
+
+use Incodiy\Codiy\Models\Admin\System\DynamicTables;
+use Incodiy\Codiy\Controllers\Core\Craft\Includes\Privileges;
+use Yajra\DataTables\DataTables as DataTable;
+
+/**
+ * Datatables processor for handling table operations
+ * 
+ * Created on 21 Apr 2021
+ * Time Created : 12:45:06
+ *
+ * @filesource Datatables.php
+ *
+ * @author     wisnuwidi@incodiy.com - 2021
+ * @copyright  wisnuwidi
+ * @email      wisnuwidi@incodiy.com
+ */
+class Datatables
+{
+    use Privileges;
+
+    /**
+     * Filter model array
+     */
+    public $filter_model = [];
+
+    /**
+     * Filter datatables array
+     */
+    public $filter_datatables = [];
+
+    /**
+     * Valid image extensions
+     */
+    private const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif'];
+
+    /**
+     * Default pagination settings
+     */
+    private const DEFAULT_PAGINATION = [
+        'start' => 0,
+        'length' => 10,
+        'total' => 0
+    ];
+
+    /**
+     * Default actions for datatables
+     */
+    private const DEFAULT_ACTIONS = ['view', 'insert', 'edit', 'delete'];
+
+    /**
+     * Fields to be excluded from datatable processing
+     */
+    private const BLACKLISTED_FIELDS = ['password', 'action', 'no'];
+
+    /**
+     * Reserved request parameter names that should be ignored during filtering
+     */
+    private const RESERVED_PARAMETERS = [
+        'renderDataTables', 'draw', 'columns', 'order', 'start', 
+        'length', 'search', 'difta', '_token', '_'
+    ];
+
+    /**
+     * Constructor
+     */
+    public function __construct()
+    {
+        // Empty constructor - initialization handled by trait
+    }
+
+    /**
+     * Main processing method for datatables
+     *
+     * @param array $method Method configuration
+     * @param object $data Data configuration object
+     * @param array $filters Applied filters
+     * @param array $filter_page Filter page configuration
+     * @return mixed Processed datatable data
+     */
+    public function process($method, $data, $filters = [], $filter_page = [])
+    {
+        // Initialize model and table data
+        $modelData = $this->initializeModel($method, $data);
+        $tableName = $this->getTableName($modelData);
+        
+        // Process model if needed
+        $this->processModel($data, $tableName);
+
+        // Get configuration data
+        $config = $this->getConfiguration($data, $tableName);
+
+        // Setup privileges and actions
+        $actionConfig = $this->setupActions($config, $tableName);
+
+        // Setup relationships and joins
+        $modelData = $this->setupRelationships($modelData, $config, $tableName);
+
+        // Apply conditions and filters
+        $modelData = $this->applyConditions($modelData, $data, $tableName);
+        $modelData = $this->applyFilters($modelData, $filters, $tableName, $config['firstField']);
+
+        // Setup pagination
+        $paginationConfig = $this->setupPagination($modelData);
+        $modelData->skip($paginationConfig['start'])->take($paginationConfig['length']);
+
+        // Create and configure datatables
+        $datatables = $this->createDatatables($modelData, $paginationConfig, $config);
+
+        // Apply column modifications
+        $this->applyColumnModifications($datatables, $modelData, $data, $tableName, $config);
+
+        // Setup row attributes
+        $this->setupRowAttributes($datatables, $data, $tableName);
+
+        // Add action column
+        $this->addActionColumn($datatables, $modelData, $actionConfig, $data);
+
+        // Return final datatable
+        return $this->finalizeDatatable($datatables, $data->datatables->records['index_lists']);
+    }
+
+    /**
+     * Initialize model based on configuration
+     */
+    private function initializeModel($method, $data)
+    {
+        // Fix: Check if 'difta' key exists in proper format to prevent "Undefined array key" error
+        $diftaName = null;
+        
+        // Check for nested difta structure: $method['difta']['name']
+        if (isset($method['difta']) && isset($method['difta']['name'])) {
+            $diftaName = $method['difta']['name'];
+        }
+        // Check for flat difta structure from form data: $method['difta[name]']
+        elseif (isset($method['difta[name]'])) {
+            $diftaName = $method['difta[name]'];
+        }
+        // Fallback: try to find any difta-related key
+        else {
+            foreach ($method as $key => $value) {
+                if (strpos($key, 'difta') !== false && !empty($value)) {
+                    $diftaName = $value;
+                    break;
+                }
+            }
+        }
+        
+        if (empty($diftaName)) {
+            throw new \InvalidArgumentException('Missing required difta configuration in method. Available keys: ' . implode(', ', array_keys($method)));
+        }
+        
+        if (empty($data->datatables->model[$diftaName])) {
+            throw new \InvalidArgumentException("Model configuration not found for: {$diftaName}. Available models: " . implode(', ', array_keys($data->datatables->model)));
+        }
+
+        $modelConfig = $data->datatables->model[$diftaName];
+        $modelType = $modelConfig['type'];
+        $modelSource = $modelConfig['source'];
+
+        if ($modelType === 'model') {
+            return $modelSource;
+        }
+
+        if ($modelType === 'sql') {
+            return new DynamicTables($modelSource);
+        }
+
+        throw new \InvalidArgumentException("Unsupported model type: {$modelType}");
+    }
+
+    /**
+     * Get table name from model
+     */
+    private function getTableName($modelData)
+    {
+        return $modelData->getTable();
+    }
+
+    /**
+     * Process model if model processing is configured
+     */
+    private function processModel($data, $tableName)
+    {
+        if (!empty($data->datatables->modelProcessing[$tableName])) {
+            diy_model_processing_table($data->datatables->modelProcessing, $tableName);
+        }
+    }
+
+    /**
+     * Get basic configuration for datatable processing
+     */
+    private function getConfiguration($data, $tableName)
+    {
+        $columnData = $data->datatables->columns;
+        
+        $firstField = 'id';
+        $blacklists = self::BLACKLISTED_FIELDS;
+        
+        if (!in_array('id', $columnData[$tableName]['lists'])) {
+            $firstField = $columnData[$tableName]['lists'][0];
+            $blacklists[] = 'id';
+        }
+
+        return [
+            'privileges' => $this->set_module_privileges(),
+            'columnData' => $columnData,
+            'firstField' => $firstField,
+            'blacklists' => $blacklists,
+            'buttonsRemoval' => $columnData[$tableName]['button_removed'] ?? [],
+            'orderBy' => $columnData[$tableName]['orderby'] ?? []
+        ];
+    }
+
+    /**
+     * Setup actions and privileges
+     */
+    private function setupActions($config, $tableName)
+    {
+        $columnData = $config['columnData'];
+        $privileges = $config['privileges'];
+
+        if (empty($columnData[$tableName]['actions']) && !is_array($columnData[$tableName]['actions'])) {
+            return ['list' => false, 'removed' => []];
+        }
+
+        $actionList = $this->determineActionList($columnData[$tableName]['actions']);
+        $allowedActions = $this->filterActionsByPrivileges($actionList, $privileges);
+        $removedPrivileges = array_diff($actionList, $allowedActions);
+
+        return [
+            'list' => $actionList,
+            'allowed' => $allowedActions,
+            'removed' => $removedPrivileges
+        ];
+    }
+
+    /**
+     * Determine the list of actions based on configuration
+     */
+    private function determineActionList($actions)
+    {
+        if ($actions === true) {
+            return self::DEFAULT_ACTIONS;
+        }
+
+        if (is_array($actions)) {
+            return array_merge_recursive_distinct(self::DEFAULT_ACTIONS, $actions);
+        }
+
+        return [];
+    }
+
+    /**
+     * Setup relationships dynamically based on model capabilities
+     */
+    private function setupRelationships($modelData, $config, $tableName)
+    {
+        \Log::info("🔄 Setting up relationships for table: {$tableName}");
+        
+        // Check if model has specific relationship method
+        $modelClass = get_class($modelData->getModel());
+        
+        // For Eloquent models, check for relationship methods
+        if (method_exists($modelClass, 'getUserInfo') && $tableName === 'users') {
+            \Log::info('✅ Found getUserInfo method in User model - using model relationship');
+            
+            // Create new instance and get query with relationships  
+            $userModel = new $modelClass;
+            $relationQuery = $userModel->getUserInfo(false, false); // Return query builder
+            
+            return $relationQuery;
+        }
+        
+        // Add other dynamic relationship detection here
+        // Check for standard Laravel relationship methods: hasMany, belongsTo, etc.
+        
+        \Log::info("ℹ️ No specific relationship method found for {$tableName}, using base model");
+        return $modelData;
+    }
+
+    /**
+     * Filter actions based on user privileges
+     */
+    private function filterActionsByPrivileges($actionList, $privileges)
+    {
+        if ($privileges['role_group'] <= 1) {
+            return $actionList;
+        }
+
+        if (empty($privileges['role'])) {
+            return [];
+        }
+
+        $baseInfo = routelists_info()['base_info'];
+        if (strpos(json_encode($privileges['role']), $baseInfo) === false) {
+            return [];
+        }
+
+        $allowedActions = [];
+        $routeMapping = $this->getRouteActionMapping();
+
+        foreach ($privileges['role'] as $role) {
+            if (!diy_string_contained($role, $baseInfo)) {
+                continue;
+            }
+
+            $routeName = routelists_info($role)['last_info'];
+            foreach ($routeMapping as $routes => $action) {
+                if (in_array($routeName, explode(',', $routes))) {
+                    $allowedActions[$action] = $action;
+                    break;
+                }
+            }
+        }
+
+        $result = [];
+        foreach ($actionList as $action) {
+            if (isset($allowedActions[$action]) || !in_array($action, self::DEFAULT_ACTIONS)) {
+                $result[] = $action;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Get mapping between route names and actions
+     */
+    private function getRouteActionMapping()
+    {
+        return [
+            'index,show,view' => 'view',
+            'create,insert' => 'insert',
+            'edit,modify,update' => 'edit',
+            'destroy,delete' => 'delete'
+        ];
+    }
+
+    /**
+     * Setup table relationships and joins
+     */
+    private function setupRelationships($modelData, $config, $tableName)
+    {
+        $columnData = $config['columnData'];
+        
+        if (empty($columnData[$tableName]['foreign_keys'])) {
+            return $modelData;
+        }
+
+        $joinFields = ["{$tableName}.*"];
+        $fieldsets = [];
+
+        foreach ($columnData[$tableName]['foreign_keys'] as $foreignKey => $localKey) {
+            $tables = explode('.', $foreignKey);
+            $foreignTable = $tables[0];
+            
+            $modelData = $modelData->leftJoin($foreignTable, $foreignKey, '=', $localKey);
+            $fieldsets[$foreignTable] = diy_get_table_columns($foreignTable);
+        }
+
+        foreach ($fieldsets as $tableName => $fields) {
+            foreach ($fields as $field) {
+                if ($field === 'id') {
+                    $joinFields[] = "{$tableName}.{$field} as {$tableName}_{$field}";
+                } else {
+                    $joinFields[] = "{$tableName}.{$field}";
+                }
+            }
+        }
+
+        return $modelData->select($joinFields);
+    }
+
+    /**
+     * Apply where conditions to the model
+     */
+    private function applyConditions($modelData, $data, $tableName)
+    {
+        if (empty($data->datatables->conditions[$tableName]['where'])) {
+            return $modelData;
+        }
+
+        $whereConditions = $this->parseWhereConditions(
+            $data->datatables->conditions[$tableName]['where']
+        );
+
+        if (!empty($whereConditions['simple'])) {
+            $modelData = $modelData->where($whereConditions['simple']);
+        }
+
+        if (!empty($whereConditions['in'])) {
+            foreach ($whereConditions['in'] as $field => $values) {
+                $modelData = $modelData->whereIn($field, $values);
+            }
+        }
+
+        return $modelData;
+    }
+
+    /**
+     * Parse where conditions into simple and whereIn conditions
+     */
+    private function parseWhereConditions($conditions)
+    {
+        $whereConditions = ['simple' => [], 'in' => []];
+
+        foreach ($conditions as $condition) {
+            if (!is_array($condition['value'])) {
+                $whereConditions['simple'][] = [
+                    $condition['field_name'],
+                    $condition['operator'],
+                    $condition['value']
+                ];
+            } else {
+                $whereConditions['in'][$condition['field_name']] = $condition['value'];
+            }
+        }
+
+        return $whereConditions;
+    }
+
+    /**
+     * Apply additional filters from request parameters
+     */
+    private function applyFilters($modelData, $filters, $tableName, $firstField)
+    {
+        // Debug logging
+        \Log::info('🔍 APPLY FILTERS DEBUG', [
+            'tableName' => $tableName,
+            'firstField' => $firstField,
+            'filters_input' => $filters,
+            'filters_empty' => empty($filters),
+            'filters_is_array' => is_array($filters),
+            'model_class' => get_class($modelData),
+            'query_builder_info' => 'Ready to apply WHERE conditions'
+        ]);
+
+        if (empty($filters) || !is_array($filters)) {
+            \Log::info('❌ NO FILTERS APPLIED - returning default WHERE clause');
+            return $modelData->where("{$tableName}.{$firstField}", '!=', null);
+        }
+
+        $processedFilters = $this->processFilters($filters);
+
+        \Log::info('🔧 PROCESSED FILTERS RESULT', [
+            'processedFilters' => $processedFilters,
+            'processedFilters_empty' => empty($processedFilters)
+        ]);
+
+        if (empty($processedFilters)) {
+            \Log::info('❌ PROCESSED FILTERS EMPTY - returning default WHERE clause');
+            return $modelData->where("{$tableName}.{$firstField}", '!=', null);
+        }
+
+        \Log::info('✅ APPLYING FILTERS TO QUERY', ['filters' => $processedFilters]);
+        
+        // Enable SQL query logging to see actual database queries
+        \DB::enableQueryLog();
+        
+        $result = $modelData->where($processedFilters);
+        
+        // Log the SQL queries that were executed
+        $queries = \DB::getQueryLog();
+        \Log::info('📊 SQL QUERIES WITH FILTERS', ['queries' => $queries]);
+        
+        return $result;
+    }
+
+    /**
+     * Process filters from request parameters
+     */
+    private function processFilters($filters)
+    {
+        \Log::info('🔍 PROCESS FILTERS START', ['input_filters' => $filters]);
+        
+        $validFilters = [];
+
+        foreach ($filters as $name => $value) {
+            $isValid = $this->isValidFilterParameter($name, $value);
+            
+            \Log::info('🔍 FILTER PARAMETER CHECK', [
+                'name' => $name,
+                'value' => $value,
+                'is_valid' => $isValid
+            ]);
+            
+            if (!$isValid) {
+                continue;
+            }
+
+            if (!is_array($value)) {
+                $validFilters[] = [$name => urldecode($value)];
+            } else {
+                foreach ($value as $val) {
+                    $validFilters[] = [$name => urldecode($val)];
+                }
+            }
+        }
+
+        \Log::info('🔍 VALID FILTERS EXTRACTED', ['validFilters' => $validFilters]);
+
+        if (empty($validFilters)) {
+            \Log::info('❌ NO VALID FILTERS FOUND');
+            return [];
+        }
+
+        $consolidated = $this->consolidateFilters($validFilters);
+        \Log::info('🔍 CONSOLIDATED FILTERS', ['consolidated' => $consolidated]);
+        
+        return $consolidated;
+    }
+
+    /**
+     * Check if filter parameter is valid
+     */
+    private function isValidFilterParameter($name, $value)
+    {
+        $isFiltersParam = ($name === 'filters');
+        $isEmpty = ($value === '');
+        $isReserved = in_array($name, self::RESERVED_PARAMETERS);
+        
+        \Log::info('🔍 FILTER VALIDATION DETAILS', [
+            'name' => $name,
+            'value' => $value,
+            'isFiltersParam' => $isFiltersParam,
+            'isEmpty' => $isEmpty,
+            'isReserved' => $isReserved,
+            'RESERVED_PARAMETERS' => self::RESERVED_PARAMETERS
+        ]);
+        
+        $result = !$isFiltersParam && !$isEmpty && !$isReserved;
+        
+        \Log::info('🔍 FILTER VALIDATION RESULT', [
+            'name' => $name,
+            'result' => $result ? 'VALID' : 'INVALID'
+        ]);
+        
+        return $result;
+    }
+
+    /**
+     * Consolidate filters into final format
+     */
+    private function consolidateFilters($validFilters)
+    {
+        $consolidated = [];
+        
+        foreach ($validFilters as $filter) {
+            foreach ($filter as $key => $value) {
+                $consolidated[$key] = $value; // Take last value for each key
+            }
+        }
+
+        return $consolidated;
+    }
+
+    /**
+     * Setup pagination configuration
+     */
+    private function setupPagination($modelData)
+    {
+        $config = self::DEFAULT_PAGINATION;
+        $config['total'] = $modelData->count();
+
+        // Check both GET and POST data for pagination parameters
+        $requestData = array_merge($_GET, $_POST);
+
+        if (!empty($requestData['start'])) {
+            $config['start'] = (int) $requestData['start'];
+        }
+
+        if (!empty($requestData['length'])) {
+            $config['length'] = (int) $requestData['length'];
+        }
+
+        return $config;
+    }
+
+    /**
+     * Create datatables instance with basic configuration
+     */
+    private function createDatatables($modelData, $paginationConfig, $config)
+    {
+        $datatables = DataTable::of($modelData)
+            ->setTotalRecords($paginationConfig['total'])
+            ->setFilteredRecords($paginationConfig['total'])
+            ->blacklist($config['blacklists'])
+            ->smart(true);
+
+        $this->setupRawColumns($datatables);
+        $this->setupOrdering($datatables, $config['orderBy'], $config['columnData']);
+
+        return $datatables;
+    }
+
+    /**
+     * Setup raw columns for HTML content
+     */
+    private function setupRawColumns($datatables)
+    {
+        $rawColumns = ['action', 'flag_status'];
+        
+        if (!empty($this->form->imageTagFieldsDatatable)) {
+            $imageColumns = array_keys($this->form->imageTagFieldsDatatable);
+            $rawColumns = array_merge($rawColumns, $imageColumns);
+        }
+
+        $datatables->rawColumns($rawColumns);
+    }
+
+    /**
+     * Setup column ordering
+     */
+    private function setupOrdering($datatables, $orderBy, $columnData)
+    {
+        if (!empty($orderBy)) {
+            $datatables->order(function ($query) use ($orderBy) {
+                $query->orderBy($orderBy['column'], $orderBy['order']);
+            });
+        }
+    }
+
+    /**
+     * Apply various column modifications
+     */
+    private function applyColumnModifications($datatables, $modelData, $data, $tableName, $config)
+    {
+        $this->processImageColumns($datatables, $modelData);
+        $this->processRelationalData($datatables, $data, $tableName, $config);
+        $this->processStatusColumns($datatables, $modelData);
+        $this->processFormulaColumns($datatables, $data, $tableName);
+        $this->processFormattedColumns($datatables, $data, $tableName);
+    }
+
+    /**
+     * Process image columns
+     */
+    private function processImageColumns($datatables, $modelData)
+    {
+        foreach ($modelData->get() as $model) {
+            $this->imageViewColumn($model, $datatables);
+            break; // Only need one iteration to set up columns
+        }
+    }
+
+    /**
+     * Process relational data columns
+     */
+    private function processRelationalData($datatables, $data, $tableName, $config)
+    {
+        $columnData = $config['columnData'];
+        
+        if (empty($columnData[$tableName]['relations'])) {
+            return;
+        }
+
+        foreach ($columnData[$tableName]['relations'] as $field => $relationConfig) {
+            $relationData = $relationConfig['relation_data'];
+            
+            $datatables->editColumn($field, function ($data) use ($relationData) {
+                $dataId = intval($data['id']);
+                return $relationData[$dataId]['field_value'] ?? null;
+            });
+        }
+    }
+
+    /**
+     * Process status columns with special formatting
+     */
+    private function processStatusColumns($datatables, $modelData)
+    {
+        $statusColumns = [
+            'flag_status' => function($model) {
+                return diy_unescape_html(diy_form_internal_flag_status($model->flag_status));
+            },
+            'active' => function($model) {
+                return diy_form_set_active_value($model->active);
+            },
+            'update_status' => function($model) {
+                return diy_form_set_active_value($model->update_status);
+            },
+            'request_status' => function($model) {
+                return diy_form_request_status(true, $model->request_status);
+            },
+            'ip_address' => function($model) {
+                return $model->ip_address === '::1' 
+                    ? diy_form_get_client_ip() 
+                    : $model->ip_address;
+            }
+        ];
+
+        foreach ($modelData->get() as $model) {
+            foreach ($statusColumns as $column => $callback) {
+                if (!empty($model->$column)) {
+                    $datatables->editColumn($column, $callback);
+                }
+            }
+            break; // Only need one iteration to check columns
+        }
+    }
+
+    /**
+     * Process formula columns
+     */
+    private function processFormulaColumns($datatables, $data, $tableName)
+    {
+        if (empty($data->datatables->formula[$tableName])) {
+            return;
+        }
+
+        $formulas = $data->datatables->formula[$tableName];
+        $data->datatables->columns[$tableName]['lists'] = diy_set_formula_columns(
+            $data->datatables->columns[$tableName]['lists'], 
+            $formulas
+        );
+
+        foreach ($formulas as $formula) {
+            $datatables->editColumn($formula['name'], function ($data) use ($formula) {
+                $logic = new Formula($formula, $data);
+                return $logic->calculate();
+            });
+        }
+    }
+
+    /**
+     * Process formatted data columns
+     */
+    private function processFormattedColumns($datatables, $data, $tableName)
+    {
+        if (empty($data->datatables->columns[$tableName]['format_data'])) {
+            return;
+        }
+
+        $formatData = $data->datatables->columns[$tableName]['format_data'];
+
+        foreach ($formatData as $field => $format) {
+            $datatables->editColumn($format['field_name'], function ($data) use ($field, $format) {
+                if ($field !== $format['field_name']) {
+                    return null;
+                }
+
+                $attributes = $data->getAttributes();
+                if (empty($attributes[$field])) {
+                    return null;
+                }
+
+                return diy_format(
+                    $attributes[$field],
+                    $format['decimal_endpoint'],
+                    $format['separator'],
+                    $format['format_type']
+                );
+            });
+        }
+    }
+
+    /**
+     * Setup row attributes for clickable rows
+     */
+    private function setupRowAttributes($datatables, $data, $tableName)
+    {
+        $columnData = $data->datatables->columns;
+        $attributes = ['class' => null, 'rlp' => null];
+
+        if (!empty($columnData[$tableName]['clickable']) && 
+            count($columnData[$tableName]['clickable']) >= 1) {
+            
+            $attributes['class'] = 'row-list-url';
+            $attributes['rlp'] = function ($model) {
+                return diy_unescape_html(encode_id(intval($model->id)));
+            };
+        }
+
+        $datatables->setRowAttr($attributes);
+    }
+
+    /**
+     * Add action column to datatables
+     */
+    private function addActionColumn($datatables, $modelData, $actionConfig, $data)
+    {
+        $actionData = $this->prepareActionData($modelData, $actionConfig, $data);
+        $urlTarget = $data->datatables->useFieldTargetURL;
+
+        $datatables->addColumn('action', function ($model) use ($actionData, $urlTarget) {
+            return $this->setRowActionURLs($model, $actionData, $urlTarget);
+        });
+    }
+
+    /**
+     * Prepare action data for button generation
+     */
+    private function prepareActionData($modelData, $actionConfig, $data)
+    {
+        $actionData = [
+            'model' => $modelData,
+            'current_url' => diy_current_url(),
+            'action' => [
+                'data' => $actionConfig['list'],
+                'removed' => $this->determineRemovedActions($actionConfig, $data)
+            ]
+        ];
+
+        return $actionData;
+    }
+
+    /**
+     * Determine which actions should be removed based on privileges
+     */
+    private function determineRemovedActions($actionConfig, $data)
+    {
+        $privileges = $this->set_module_privileges();
+        $baseRemoved = $data->datatables->button_removed ?? [];
+
+        if ($privileges['role_group'] <= 1) {
+            return $baseRemoved;
+        }
+
+        if (!empty($actionConfig['removed'])) {
+            return $actionConfig['removed'];
+        }
+
+        return $baseRemoved;
+    }
+
+    /**
+     * Finalize datatable with index column if needed
+     */
+    private function finalizeDatatable($datatables, $indexLists)
+    {
+        if ($indexLists === true) {
+            return $datatables->addIndexColumn()->make(true);
+        }
+
+        return $datatables->make();
+    }
+
+    /**
+     * Set row action URLs for buttons
+     */
+    private function setRowActionURLs($model, $data, $fieldTarget = 'id')
+    {
+        return diy_table_action_button(
+            $model, 
+            $fieldTarget, 
+            $data['current_url'], 
+            $data['action']['data'], 
+            $data['action']['removed']
+        );
+    }
+
+    /**
+     * Process image view column
+     */
+    private function imageViewColumn($model, $datatables)
+    {
+        $imageFields = $this->detectImageFields($model);
+
+        foreach ($imageFields as $field => $isImage) {
+            if (!isset($model->$field)) {
+                continue;
+            }
+
+            $datatables->editColumn($field, function ($model) use ($field) {
+                return $this->generateImageHtml($model->$field, $field);
+            });
+        }
+    }
+
+    /**
+     * Detect which fields contain image data
+     */
+    private function detectImageFields($model)
+    {
+        $imageFields = [];
+
+        foreach ($model as $field => $value) {
+            $validationResult = $this->checkValidImage($value);
+            if ($validationResult !== false) {
+                $imageFields[$field] = $validationResult;
+            }
+        }
+
+        return $imageFields;
+    }
+
+    /**
+     * Generate HTML for image display
+     */
+    private function generateImageHtml($imagePath, $field)
+    {
+        $label = ucwords(str_replace('-', ' ', diy_clean_strings($field)));
+        $imageCheck = $this->checkValidImage($imagePath);
+
+        if ($imageCheck === false) {
+            return $this->extractFilename($imagePath);
+        }
+
+        if ($imageCheck !== true) {
+            return diy_unescape_html($imageCheck);
+        }
+
+        $displayPath = $this->getDisplayPath($imagePath);
+        $alt = "imgsrc::{$label}";
+
+        return diy_unescape_html(
+            "<center><img class=\"cdy-img-thumb\" src=\"{$displayPath}\" alt=\"{$alt}\" /></center>"
+        );
+    }
+
+    /**
+     * Get display path for image (with thumbnail if available)
+     */
+    private function getDisplayPath($imagePath)
+    {
+        $pathParts = explode('/', $imagePath);
+        $filename = array_pop($pathParts);
+        $thumbnailPath = implode('/', $pathParts) . '/thumb/tnail_' . $filename;
+
+        if (file_exists($this->setAssetPath($thumbnailPath))) {
+            return $thumbnailPath;
+        }
+
+        return $imagePath;
+    }
+
+    /**
+     * Extract filename from path
+     */
+    private function extractFilename($path)
+    {
+        $pathParts = explode('/', $path);
+        return end($pathParts);
+    }
+
+    /**
+     * Set asset path with proper formatting
+     */
+    private function setAssetPath($filePath, $http = false, $publicPath = 'public')
+    {
+        if ($http) {
+            $assetsUrl = explode('/', url()->asset('assets'));
+            $stringUrl = explode('/', $filePath);
+            return implode('/', array_unique(array_merge($assetsUrl, $stringUrl)));
+        }
+
+        return str_replace($publicPath . '/', public_path("\\"), $filePath);
+    }
+
+    /**
+     * Check if string contains valid image
+     */
+    private function checkValidImage($string, $localPath = true)
+    {
+        $filePath = $this->setAssetPath($string);
+
+        if (!file_exists($filePath)) {
+            return $this->generateMissingFileHtml($string);
+        }
+
+        foreach (self::IMAGE_EXTENSIONS as $extension) {
+            if (strpos($string, $extension) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Generate HTML for missing file
+     */
+    private function generateMissingFileHtml($string)
+    {
+        $pathParts = explode('/', $string);
+        $filename = end($pathParts);
+        $message = "This File [ {$filename} ] Do Not or Never Exist!";
+
+        return "<div class=\"show-hidden-on-hover missing-file\" title=\"{$message}\">" .
+               "<i class=\"fa fa-warning\"></i>&nbsp;{$filename}</div>";
+    }
+
+    /**
+     * Set filter for datatable processing
+     */
+    public function filter_datatable($request)
+    {
+        $this->filter_datatables = $request->all();
+    }
+
+    /**
+     * Initialize filter datatables with advanced filtering options
+     */
+    public function init_filter_datatables($get = [], $post = [], $connection = null)
+    {
+        if (empty($get['filterDataTables'])) {
+            return null;
+        }
+
+        $filterConfig = $this->parseFilterConfiguration($post);
+        $sqlQuery = $this->buildFilterQuery($filterConfig);
+
+        return diy_query($sqlQuery, 'SELECT', $filterConfig['connection']);
+    }
+
+    /**
+     * Parse filter configuration from POST data
+     */
+    private function parseFilterConfiguration($post)
+    {
+        $connection = $post['grabCoDIYC'] ?? null;
+        unset($post['grabCoDIYC']);
+
+        $filters = $post['_diyF'] ?? [];
+        unset($post['_diyF']);
+
+        $diftaData = explode('::', $post['_difta']);
+        $config = [
+            'connection' => $connection,
+            'filters' => $filters,
+            'table' => $diftaData[1],
+            'target' => $diftaData[2],
+            'previous' => $diftaData[3],
+            'foreignKeys' => json_decode($post['_forKeys'] ?? '[]', true)
+        ];
+
+        // Clean up POST data
+        $reserved = ['filterDataTables', '_difta', '_token', '_n', '_forKeys'];
+        foreach ($reserved as $key) {
+            unset($post[$key]);
+        }
+
+        $config['conditions'] = $post;
+        return $config;
+    }
+
+    /**
+     * Build SQL query for filtering
+     */
+    private function buildFilterQuery($config)
+    {
+        $joins = $this->buildJoinClauses($config['foreignKeys']);
+        $whereClause = $this->buildWhereClause($config);
+
+        $sql = "SELECT DISTINCT `{$config['target']}` FROM `{$config['table']}`";
+        
+        if (!empty($joins)) {
+            $sql .= " {$joins}";
+        }
+        
+        $sql .= " WHERE {$whereClause}";
+
+        return $sql;
+    }
+
+    /**
+     * Build JOIN clauses for foreign keys
+     */
+    private function buildJoinClauses($foreignKeys)
+    {
+        if (empty($foreignKeys)) {
+            return '';
+        }
+
+        $joinClauses = [];
+        foreach ($foreignKeys as $foreignKey => $localKey) {
+            $foreignTable = explode('.', $foreignKey)[0];
+            $joinClauses[] = "LEFT JOIN {$foreignTable} ON {$foreignKey} = {$localKey}";
+        }
+
+        return implode(' ', $joinClauses);
+    }
+
+    /**
+     * Build WHERE clause for filtering
+     */
+    private function buildWhereClause($config)
+    {
+        $conditions = [];
+
+        // Add basic conditions
+        foreach ($config['conditions'] as $field => $value) {
+            $conditions[] = "`{$field}` = '{$value}'";
+        }
+
+        // Add filter conditions
+        foreach ($config['filters'] as $filter) {
+            $fieldName = $filter['field_name'];
+            $value = $filter['value'];
+
+            if (is_array($value)) {
+                $valueList = implode("', '", $value);
+                $conditions[] = "`{$fieldName}` IN ('{$valueList}')";
+            } else {
+                $conditions[] = "`{$fieldName}` = '{$value}'";
+            }
+        }
+
+        $whereClause = implode(' AND ', $conditions);
+
+        // Add previous conditions if specified
+        if ($config['previous'] !== '#null') {
+            $previousConditions = $this->parsePreviousConditions($config['previous']);
+            $whereClause .= ' AND ' . implode(' AND ', $previousConditions);
+        }
+
+        return $whereClause;
+    }
+
+    /**
+     * Parse previous conditions from encoded string
+     */
+    private function parsePreviousConditions($previousString)
+    {
+        $parts = explode("#", $previousString);
+        $fields = explode('|', $parts[0]);
+        $values = explode('|', $parts[1]);
+
+        $conditions = [];
+        foreach ($fields as $index => $field) {
+            $value = $values[$index] ?? '';
+            $conditions[] = "`{$field}` = '{$value}'";
+        }
+
+        return $conditions;
+    }
+}

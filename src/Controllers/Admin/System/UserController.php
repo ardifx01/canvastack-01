@@ -62,19 +62,24 @@ class UserController extends Controller {
 		if (!$this->is_root && !diy_string_contained($this->session['user_group'], 'admin')) {
 			return self::redirect("{$this->session['id']}/edit");
 		}
-		
+		$this->table->setMethod('POST'); // ⭐ DISABLED - USING GET METHOD FOR FILTERING COMPATIBILITY (Like LogController)
+	//	$this->table->setSecureMode();
 		$this->table->searchable();
 		$this->table->clickable();
 		$this->table->sortable();
-		
+		/*
 		$this->table->relations($this->model, 'group', 'group_info', self::key_relations());
 		$this->table->relations($this->model, 'group', 'group_name', self::key_relations());
-		
+		*/
+		$this->table->useRelation('group');
+
 		$this->table->filterGroups('username', 'selectbox', true);
 		$this->table->filterGroups('group_info', 'selectbox', true);
 		$this->table->orderby('id', 'DESC');
 		
-		$this->table->lists($this->model_table, ['username:User', 'email', 'group_info', 'group_name', 'address', 'phone', 'expire_date', 'active']);
+	//	$this->table->lists($this->model_table, ['username:User', 'email', 'group_info', 'group_name', 'address', 'phone', 'expire_date', 'active']);
+
+		$this->table->lists($this->model_table, ['username:User', 'email', 'group.info', 'group.name', 'address', 'phone', 'expire_date', 'active']);
 		
 		return $this->render();
 	}
@@ -164,6 +169,12 @@ class UserController extends Controller {
 	
 	public function store(Request $request) {
 		$this->get_session();
+		
+		// Check if this is a DataTables AJAX request, redirect to index method
+		if ($request->has('renderDataTables') && $request->get('renderDataTables') === 'true') {
+			return $this->index($request);
+		}
+		
 		if (!empty($request->diyImportProcess)) return $this->storeFromImports($request);
 		
 		$this->set_data_before_post($request);

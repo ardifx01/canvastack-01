@@ -106,7 +106,8 @@ function exportFromModal(modalID, exportID, filterID, token, url, link, filter =
 	});
 }
 
-function diyDataTableFilters(id, url, obTable) {
+function diyDataTableFilters(id, url, obTable, options) {
+	options = options || {};
 	$('#diy-' + id + '-search-box').appendTo('.cody_' + id + '_diy-dt-filter-box');
 	$('.diy-dt-search-box').removeClass('hide');
 	$('#' + id + '_cdyProcessing').hide();
@@ -114,6 +115,32 @@ function diyDataTableFilters(id, url, obTable) {
 	$('#' + id + '_cdyFILTERForm').on('submit', function(event) {
 		event.preventDefault();
 		$('#' + id + '_cdyProcessing').show();
+
+		var isPost = !!options.usePost;
+		var reserved = ['renderDataTables','draw','columns','order','start','length','search','difta','_token','_','filters'];
+		
+		if (isPost && obTable && obTable.settings && obTable.settings()[0]) {
+			var payload = {};
+			$.each($(this).serializeArray(), function(i, field) {
+				if (reserved.indexOf(field.name) === -1 && field.value && field.value !== '' && field.value !== '____-__-__ __:__:__') {
+					if (payload[field.name] === undefined) payload[field.name] = field.value;
+					else if (Array.isArray(payload[field.name])) payload[field.name].push(field.value);
+					else payload[field.name] = [payload[field.name], field.value];
+				}
+			});
+			payload['filters'] = 'true'; // NECESSARY PAYLOAD FOR FILTER ADDED
+			var originalDataFn = obTable.settings()[0]._originalAjaxData || obTable.settings()[0].ajax.data || function(d){return d;};
+			obTable.settings()[0]._originalAjaxData = originalDataFn;
+			obTable.settings()[0].ajax.data = function(d){
+				var base = (typeof originalDataFn === 'function') ? originalDataFn(d) : originalDataFn;
+				return $.extend({}, base || {}, d || {}, payload);
+			};
+			obTable.ajax.reload(function(){
+				$('#' + id + '_cdyProcessing').hide();
+				$('#' + id + '_cdyFILTER').modal('hide');
+			}, false);
+			return;
+		}
 		
 		var input = {};
 		$.each($(this).serialize().split('&'), function(i, d) {

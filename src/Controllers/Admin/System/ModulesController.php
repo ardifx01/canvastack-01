@@ -131,6 +131,7 @@ class ModulesController extends Controller {
 	public function index() {
 		$this->setPage();
 		
+		$this->table->setSecureMode();
 		$this->table->mergeColumns('Module', ['module_name', 'parent_name']);
 		
 		$this->table->searchable(['module_name', 'route_path']);

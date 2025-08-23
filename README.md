@@ -1,7 +1,8 @@
 # Incodiy/Codiy — Enterprise Admin Framework
-(Transitioning to CanvasStack)
 
-**Current Status**: Active Development - Phase 2 (Hardening & Architecture Refinement)
+### *(Transitioning progress to CanvaStack)*
+
+**Current Status**: Active Development - Phase 2 (Hardening & Architecture Refinement)   
 **Next Major Release**: Rebranding to canvastack/canvastack
 
 ## Overview

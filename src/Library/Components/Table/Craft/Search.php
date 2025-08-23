@@ -387,19 +387,20 @@ class Search {
 		$next_target = null;
 		$nextNode    = null;
 		
-		$fieldsets   = $fields['others'];
+		// Normalize fieldsets to ensure numeric indexing and guard accesses
+		$fieldsets   = array_values($fields['others'] ?? []);
 		$curTargets  = null;
 		$nexTargets  = [];
-		if (!empty($fields['others'][$currKey+1])) {
-			$next_target = $fields['others'][key($fields['current'])+1];
-			$nextNode    = "{$next_target}_{$fNode}";
+		if (!empty($fieldsets[$currKey+1])) {
+			$next_target = $fieldsets[key($fields['current'])+1] ?? null;
+			$nextNode    = $next_target ? "{$next_target}_{$fNode}" : null;
 			
-			$curTargets  = $fieldsets[key($fields['current'])];
+			$curTargets  = $fieldsets[key($fields['current'])] ?? null;
 			$nexTargets  = $fieldsets;
 		}
-		$firstTarget = $fieldsets[0];
+		$firstTarget = $fieldsets[0] ?? null;
 		$__lastIndex = count($fieldsets) - 2;
-			$lastTarget  = ($__lastIndex >= 0 && isset($fieldsets[$__lastIndex])) ? $fieldsets[$__lastIndex] : null;
+		$lastTarget  = ($__lastIndex >= 0 && isset($fieldsets[$__lastIndex])) ? $fieldsets[$__lastIndex] : null;
 		
 		$nests       = [];		
 		$prev        = null;
@@ -560,14 +561,38 @@ class Search {
 	
 	private function getColumnInfo(string $table, array $fields) {
 		$columns = [];
-		foreach ($this->getColumns($table) as $column) {
-		    if (false === $this->tableFromView) $columns[$column] = $this->getColumnType($table, $column);
+		$tableColumns = $this->getColumns($table);
+		
+		// If no columns found (table doesn't exist), return empty info
+		if (empty($tableColumns)) {
+			\Log::warning("⚠️ No columns found for table in Search", [
+				'table' => $table,
+				'fields' => $fields
+			]);
+			return [];
+		}
+		
+		foreach ($tableColumns as $column) {
+		    if (false === $this->tableFromView) {
+		    	$columnType = $this->getColumnType($table, $column);
+		    	if ($columnType) {
+		    		$columns[$column] = $columnType;
+		    	}
+		    }
 		}
 		
 		$info = [];
 		foreach ($fields as $field) {
 			if (!empty($columns[$field])) {
 				$info[$field] = $columns[$field];
+			} else {
+				// Provide default type for missing fields
+				$info[$field] = 'string';
+				\Log::info("🔧 Using default type for field", [
+					'table' => $table,
+					'field' => $field,
+					'type' => 'string'
+				]);
 			}
 		}
 		

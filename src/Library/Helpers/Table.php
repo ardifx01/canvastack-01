@@ -124,8 +124,27 @@ if (!function_exists('diy_get_table_columns')) {
 	 * @return array
 	 */
 	function diy_get_table_columns($table_name, $db_connection = 'mysql') {
-		$connection = DB::connection($db_connection);
-		return $connection->getSchemaBuilder()->getColumnListing($table_name);
+		try {
+			$connection = DB::connection($db_connection);
+			
+			// Check if table exists first
+			if (!$connection->getSchemaBuilder()->hasTable($table_name)) {
+				\Log::warning("⚠️ Table does not exist for column listing", [
+					'table' => $table_name,
+					'connection' => $db_connection
+				]);
+				return []; // Return empty array if table doesn't exist
+			}
+			
+			return $connection->getSchemaBuilder()->getColumnListing($table_name);
+		} catch (\Exception $e) {
+			\Log::error("❌ Error getting table columns", [
+				'table' => $table_name,
+				'connection' => $db_connection,
+				'error' => $e->getMessage()
+			]);
+			return []; // Safe fallback
+		}
 	}
 }
 
@@ -140,8 +159,39 @@ if (!function_exists('diy_get_table_column_type')) {
 	 * @return string
 	 */
     function diy_get_table_column_type($table_name, $field_name, $db_connection = 'mysql') {
-        $connection = DB::connection($db_connection);
-        return $connection->getSchemaBuilder()->getColumnType($table_name, $field_name);
+        try {
+            $connection = DB::connection($db_connection);
+            
+            // Check if table exists first
+            if (!$connection->getSchemaBuilder()->hasTable($table_name)) {
+                \Log::warning("⚠️ Table does not exist for column type detection", [
+                    'table' => $table_name,
+                    'field' => $field_name,
+                    'connection' => $db_connection
+                ]);
+                return 'string'; // Default fallback type
+            }
+            
+            // Check if column exists
+            if (!$connection->getSchemaBuilder()->hasColumn($table_name, $field_name)) {
+                \Log::warning("⚠️ Column does not exist for type detection", [
+                    'table' => $table_name,
+                    'field' => $field_name,
+                    'connection' => $db_connection
+                ]);
+                return 'string'; // Default fallback type
+            }
+            
+            return $connection->getSchemaBuilder()->getColumnType($table_name, $field_name);
+        } catch (\Exception $e) {
+            \Log::error("❌ Error getting column type", [
+                'table' => $table_name,
+                'field' => $field_name,
+                'connection' => $db_connection,
+                'error' => $e->getMessage()
+            ]);
+            return 'string'; // Safe fallback
+        }
 	}
 }
 
@@ -275,6 +325,7 @@ if (!function_exists('diy_modal_content_html')) {
 	function diy_modal_content_html($name, $title, $elements) {
 		$buttonID = str_replace('_cdyFILTERmodalBOX', '_submitFilterButton', $name);
 		$tableId = str_replace('_cdyFILTERmodalBOX', '', $name);
+		$modalId = str_replace('_cdyFILTERmodalBOX', '', $name) . 'Modal';
 		
 		$html  = '<div class="modal-body">';
 			$html .= '<div id="' . $name . '">';
@@ -284,12 +335,31 @@ if (!function_exists('diy_modal_content_html')) {
 		$html .= '<div class="modal-footer">';
 			$html .= '<div class="diy-action-box">';
 				$html .= '<button type="reset" id="' . $name . '-cancel" class="btn btn-danger btn-slideright pull-right" data-dismiss="modal">Cancel</button>';
-				$html .= '<button id="' . $buttonID . '" class="btn btn-primary btn-slideright pull-right diy-ajax-filter-btn" type="submit" data-table-id="' . $tableId . '">';
+				$html .= '<button id="' . $buttonID . '" class="btn btn-primary btn-slideright pull-right diy-ajax-filter-btn" type="submit" data-table-id="' . $tableId . '" data-modal-id="' . $modalId . '">';
 					$html .= '<i class="fa fa-filter"></i> &nbsp; Filter Data ' . $title;
 				$html .= '</button>';
 				$html .= '<button id="exportFilterButton' . $name . '" class="btn btn-info btn-slideright pull-right btn-export-csv hide" type="button">Export to CSV</button>';
 			$html .= '</div>';
 		$html .= '</div>';
+		
+		// ⭐ ADD AUTO-CLOSE MODAL SCRIPT
+		$html .= '<script>';
+		$html .= '$(document).ready(function() {';
+		$html .= '    $("#' . $buttonID . '").on("click", function() {';
+		$html .= '        var modalId = $(this).data("modal-id");';
+		$html .= '        var tableId = $(this).data("table-id");';
+		$html .= '        ';
+		$html .= '        // Show loading state';
+		$html .= '        $(this).prop("disabled", true).html("<i class=\"fa fa-spinner fa-spin\"></i> &nbsp; Filtering...");';
+		$html .= '        ';
+		$html .= '        // Auto-close modal after 2 seconds (give time for filter to process)';
+		$html .= '        setTimeout(function() {';
+		$html .= '            $("#" + modalId).modal("hide");';
+		$html .= '            $("#' . $buttonID . '").prop("disabled", false).html("<i class=\"fa fa-filter\"></i> &nbsp; Filter Data ' . $title . '");';
+		$html .= '        }, 2000);';
+		$html .= '    });';
+		$html .= '});';
+		$html .= '</script>';
 		
 		return $html;
 	}

@@ -3,7 +3,7 @@
 All notable changes to the Incodiy Table Component will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v1.9.0.html).
 
 ---
 
@@ -19,7 +19,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [2.3.1] - 2025-12-28
+## [2.0.2] - 2024-05-18
+
+### 🔧 Bugfix — Duplicate JOIN Guard & Filter Stability
+
+### Fixed
+- Prevented duplicate JOINs causing "Not unique table/alias" by applying guarded join assembly in relationship setup.
+- Legacy filters continue to qualify columns and use proper operators (LIKE/IN).
+
+### Technical Details
+```php
+// Datatables.php — setupRelationships (foreign key path)
+$joins = [];
+foreach ($foreignKeys as $foreignKey => $localKey) {
+    $tables = explode('.', $foreignKey);
+    $foreignTable = $tables[0];
+    $joins[] = ['type' => 'left', 'table' => $foreignTable, 'first' => $foreignKey, 'second' => $localKey];
+}
+$this->applyRelationJoins($modelData, $joins); // skips duplicates safely
+```
+
+### Documentation
+- Updated INDEX.md (version notes) and development summaries.
+
+---
+
+## [2.0.1] - 2024-04-28
 
 ### 🔧 Bugfix & Hardening — Action List Merge and Search UI Guard
 
@@ -63,7 +88,7 @@ $__lastIndex = count($fieldsets) - 2;
 
 ---
 
-## [2.3.0] - 2024-12-25
+## [2.0.0] - 2024-04-25
 
 ### 🚀 Major Enhancement - Zero-Configuration & Auto-Discovery System
 
@@ -96,7 +121,7 @@ $__lastIndex = count($fieldsets) - 2;
 
 ### Technical Implementation
 ```php
-// Before v2.3.0 - Manual configuration required
+// Before v2.0.0 - Manual configuration required
 'view_report_summary' => [
     'class' => 'App\\Models\\ReportSummary',
     'primary_key' => null,
@@ -105,7 +130,7 @@ $__lastIndex = count($fieldsets) - 2;
     // ... 20+ lines of configuration
 ],
 
-// After v2.3.0 - Zero configuration needed!
+// After v2.0.0 - Zero configuration needed!
 class ReportSummary extends Model {
     protected $connection = 'mysql_mantra_etl';
     protected $table = 'view_report_summary';
@@ -144,7 +169,7 @@ class ReportSummary extends Model {
 
 ---
 
-## [2.2.2] - 2024-12-20
+## [2.0.0] - 2024-04-23
 
 ### Changed
 - Default searchDelay reduced to 500ms in client init for better UX and fewer bursts
@@ -175,7 +200,7 @@ class ReportSummary extends Model {
 
 ---
 
-## [2.2.1] - 2025-08-20
+## [1.9.9] - 2025-04-20
 
 ### 🔧 Bugfix & Hardening — GET/POST Filtering Stability
 
@@ -192,7 +217,7 @@ class ReportSummary extends Model {
 
 ---
 
-## [2.2.0] - 2024-12-16
+## [1.9.8] - 2024-04-18
 
 ### ⚠️ Partial Fix - Relationship System Architecture Update
 
@@ -269,7 +294,7 @@ if ($tableName === 'users' && method_exists($modelClass, 'getUserInfo')) {
 
 ---
 
-## [2.1.1] - 2024-12-15
+## [1.9.7] - 2024-04-15
 
 ### 🚨 Critical Fix
 **POST Method Filtering Issue Resolution**
@@ -314,7 +339,7 @@ $this->table->setMethod('POST'); // Caused filtering to fail
 
 ---
 
-## [2.1.0] - 2024-11-30
+## [1.9.6] - 2024-04-11
 
 ### Added
 - Enhanced security mode with automatic POST method enforcement
@@ -344,7 +369,7 @@ $this->table->setMethod('POST'); // Caused filtering to fail
 
 ---
 
-## [2.0.5] - 2024-10-15
+## [1.9.5] - 2024-04-08
 
 ### Added
 - Multi-language support for table interface elements
@@ -369,7 +394,7 @@ $this->table->setMethod('POST'); // Caused filtering to fail
 
 ---
 
-## [2.0.4] - 2024-09-22
+## [1.9.4] - 2024-03-28
 
 ### Added
 - Server-side search functionality with configurable operators
@@ -390,7 +415,7 @@ $this->table->setMethod('POST'); // Caused filtering to fail
 
 ---
 
-## [2.0.3] - 2024-08-10
+## [1.9.3] - 2024-03-25
 
 ### Added
 - Lazy loading support for improved initial page load times
@@ -411,7 +436,7 @@ $this->table->setMethod('POST'); // Caused filtering to fail
 
 ---
 
-## [2.0.2] - 2024-07-18
+## [1.9.2] - 2024-03-18
 
 ### Added
 - Chart integration with Chart.js for data visualization  
@@ -432,7 +457,7 @@ $this->table->setMethod('POST'); // Caused filtering to fail
 
 ---
 
-## [2.0.1] - 2024-06-25
+## [1.9.1] - 2024-03-10
 
 ### Added
 - Multi-select filtering with checkbox interface
@@ -453,7 +478,7 @@ $this->table->setMethod('POST'); // Caused filtering to fail
 
 ---
 
-## [2.0.0] - 2024-05-30
+## [1.9.0] - 2024-02-30
 
 ### 🎉 Major Release - Complete Architecture Rewrite
 
@@ -479,11 +504,11 @@ $this->table->setMethod('POST'); // Caused filtering to fail
 - Old JavaScript libraries (updated to modern alternatives)
 
 ### Migration Guide
-See [MIGRATION.md](MIGRATION.md) for detailed upgrade instructions from v1.x to v2.0.
+See [MIGRATION.md](MIGRATION.md) for detailed upgrade instructions from v1.x to v1.9.
 
 ---
 
-## [1.9.8] - 2024-04-15
+## [1.8.4] - 2024-02-25
 
 ### Added
 - Enhanced error handling with user-friendly messages
@@ -502,7 +527,7 @@ See [MIGRATION.md](MIGRATION.md) for detailed upgrade instructions from v1.x to 
 
 ---
 
-## [1.9.7] - 2024-03-20
+## [1.8.3] - 2024-02-20
 
 ### Added
 - Advanced search with multiple search operators
@@ -521,7 +546,7 @@ See [MIGRATION.md](MIGRATION.md) for detailed upgrade instructions from v1.x to 
 
 ---
 
-## [1.9.6] - 2024-02-28
+## [1.8.2] - 2024-02-10
 
 ### Added
 - Bulk edit functionality for multiple rows
@@ -540,7 +565,7 @@ See [MIGRATION.md](MIGRATION.md) for detailed upgrade instructions from v1.x to 
 
 ---
 
-## [1.9.5] - 2024-01-15
+## [1.8.1] - 2024-01-15
 
 ### Added
 - Real-time notifications for data changes
@@ -559,7 +584,7 @@ See [MIGRATION.md](MIGRATION.md) for detailed upgrade instructions from v1.x to 
 
 ---
 
-## [1.9.0] - 2023-12-01
+## [1.8.0] - 2023-12-01
 
 ### Added
 - Initial release of advanced table component
@@ -597,7 +622,7 @@ This project follows [Semantic Versioning](https://semver.org/):
 - **beta**: Feature complete, testing phase
 - **rc**: Release candidate, final testing before release
 
-Example: `2.1.0-beta.1`, `2.2.0-rc.1`
+Example: `1.9.0-beta.1`, `1.9.0-rc.1`
 
 ---
 
@@ -634,7 +659,7 @@ composer update incodiy/table-component
 composer require "incodiy/table-component:^2.1"
 
 # Update to specific version
-composer require "incodiy/table-component:2.1.1"
+composer require "incodiy/table-component:1.9.1"
 ```
 
 ### Breaking Change Notifications

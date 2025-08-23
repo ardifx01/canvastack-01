@@ -254,6 +254,11 @@ class Datatables
             if (config('datatables.debug', false)) { \Log::info("✅ Table name resolved", ['table' => $tableName]); }
             
             // Process model if needed
+            if (config('datatables.debug', false)) { \Log::info("🔧 About to process model", [
+                'table' => $tableName,
+                'has_modelProcessing' => isset($data->datatables->modelProcessing),
+                'modelProcessing_tables' => isset($data->datatables->modelProcessing) ? array_keys($data->datatables->modelProcessing) : []
+            ]); }
             $this->processModel($data, $tableName);
 
             // Get configuration data
@@ -888,7 +893,10 @@ class Datatables
                 'users' => 'Incodiy\Codiy\Models\Admin\System\User',
                 'base_group' => 'Incodiy\Codiy\Models\Admin\System\Group', 
                 'base_modules' => 'Incodiy\Codiy\Models\Admin\System\Modules',
-                'base_user_group' => 'Incodiy\Codiy\Models\Admin\System\Usergroup'
+                'base_user_group' => 'Incodiy\Codiy\Models\Admin\System\Usergroup',
+                // CRITICAL FIX: Map temp tables to User model for proper relation support
+                'temp_user_never_login' => 'Incodiy\Codiy\Models\Admin\System\User',
+                'temp_montly_activity' => 'Incodiy\Codiy\Models\Admin\System\User'
             ];
             
             if (isset($modelMappings[$tableName])) {
@@ -903,13 +911,40 @@ class Datatables
                     
                     $model = new $modelClass;
                     
-                    // For users table, apply relationships if available
-                    if ($tableName === 'users' && method_exists($model, 'getUserInfo')) {
-                        \Log::info("🔗 Applying User relationships for DataTables");
-                        return $model->getUserInfo();
+                    // CRITICAL FIX: Handle temp tables differently
+                    if (strpos($tableName, 'temp_') === 0) {
+                        \Log::info("🔧 Creating Query Builder for temp table", [
+                            'table' => $tableName,
+                            'base_model' => $modelClass
+                        ]);
+                        
+                        // For temp tables, create Query Builder with proper connection
+                        $queryBuilder = \DB::table($tableName);
+                        
+                        // Verify connection is valid
+                        $connection = $queryBuilder->getConnection();
+                        if (!$connection) {
+                            \Log::error("❌ No database connection for temp table", ['table' => $tableName]);
+                            return null;
+                        }
+                        
+                        \Log::info("✅ Query Builder created for temp table", [
+                            'table' => $tableName,
+                            'connection' => get_class($connection)
+                        ]);
+                        
+                        return $queryBuilder;
                     }
                     
-                    return $model;
+                    // CRITICAL FIX: Return Eloquent Builder for regular tables
+                    // This enables Zero-Configuration and useRelation() to work properly
+                    if ($tableName === 'users') {
+                        \Log::info("✅ Using Eloquent Builder for users table (enables Zero-Config relations)");
+                        // Return Eloquent Builder with proper relation support
+                        return $model->newQuery(); // This enables useRelation('group') to work
+                    }
+                    
+                    return $model->newQuery(); // Always return Eloquent Builder for proper relation support
                 }
             }
             
@@ -1060,7 +1095,22 @@ class Datatables
         if (isset($data->datatables->modelProcessing) && 
             !empty($data->datatables->modelProcessing[$tableName])) {
             \Log::info("🔧 Processing model configuration", ['table' => $tableName]);
+            
+            // CRITICAL DEBUG: Log the model processing data before calling
+            $modelProcessingData = $data->datatables->modelProcessing[$tableName];
+            \Log::info("🔍 MODEL PROCESSING DEBUG", [
+                'table' => $tableName,
+                'model_class' => isset($modelProcessingData['model']) ? get_class($modelProcessingData['model']) : 'NO_MODEL',
+                'function' => $modelProcessingData['function'] ?? 'NO_FUNCTION',
+                'connection' => $modelProcessingData['connection'] ?? 'NO_CONNECTION',
+                'strict' => $modelProcessingData['strict'] ?? 'NO_STRICT'
+            ]);
+            
             diy_model_processing_table($data->datatables->modelProcessing, $tableName);
+            
+            \Log::info("✅ Model processing completed", ['table' => $tableName]);
+        } else {
+            \Log::info("ℹ️ No model processing needed", ['table' => $tableName]);
         }
     }
 
@@ -1266,12 +1316,19 @@ class Datatables
             return $modelData;
         }
 
+        // Build joins array and apply via guarded helper to avoid duplicates
+        $joins = [];
         foreach ($foreignKeys as $foreignKey => $localKey) {
             $tables = explode('.', $foreignKey);
             $foreignTable = $tables[0];
-            
-            $modelData = $modelData->leftJoin($foreignTable, $foreignKey, '=', $localKey);
+            $joins[] = ['type' => 'left', 'table' => $foreignTable, 'first' => $foreignKey, 'second' => $localKey];
             $fieldsets[$foreignTable] = diy_get_table_columns($foreignTable);
+        }
+        if (!empty($joins) && method_exists($this, 'applyRelationJoins')) {
+            $this->applyRelationJoins($modelData, $joins);
+        } else {
+            // Fallback if helper missing
+            foreach ($joins as $j) { $modelData = $modelData->leftJoin($j['table'], $j['first'], '=', $j['second']); }
         }
 
         // Safety check: ensure fieldsets is array and each fieldset is array
@@ -1663,6 +1720,17 @@ class Datatables
     private function setupPagination($modelData)
     {
         $config = $this->getDefaultPagination();
+        
+        // CRITICAL DEBUG: Log the modelData object before calling count()
+        \Log::info("🔍 SETUP PAGINATION DEBUG", [
+            'modelData_class' => get_class($modelData),
+            'modelData_type' => gettype($modelData),
+            'has_connection' => method_exists($modelData, 'getConnection') ? 'YES' : 'NO',
+            'connection_value' => method_exists($modelData, 'getConnection') ? 
+                ($modelData->getConnection() ? get_class($modelData->getConnection()) : 'NULL') : 'N/A',
+            'has_count_method' => method_exists($modelData, 'count') ? 'YES' : 'NO'
+        ]);
+        
         $config['total'] = $modelData->count();
 
         // Check both GET and POST data for pagination parameters

@@ -15,12 +15,12 @@ Welcome to the comprehensive documentation for the Incodiy Table Component. This
 
 ### 🔧 Technical Documentation
 - **[DATA_PROVIDERS_CONFIGURATION_GUIDE.md](DATA_PROVIDERS_CONFIGURATION_GUIDE.md)** - **NEW!** Complete guide for config/data-providers.php (optional configuration file)
-- **[LAST DEVELOPMENT PROGRESS 3.md](LAST%20DEVELOPMENT%20PROGRESS%203.md)** - **LATEST!** v2.3.0 Zero-Configuration achievement - comprehensive development journey
+- **[LAST DEVELOPMENT PROGRESS 3.md](LAST%20DEVELOPMENT%20PROGRESS%203.md)** - **LATEST!** v2.0.0 Zero-Configuration achievement - comprehensive development journey
 - **[DEVELOPMENT_SUMMARY_AND_NEXT_ENHANCEMENTS.md](DEVELOPMENT_SUMMARY_AND_NEXT_ENHANCEMENTS.md)** - Complete development history, fixes, and future roadmap
 - **[ISSUE_ANALYSIS.md](ISSUE_ANALYSIS.md)** - Analysis of GET vs POST filtering issues and solutions
 - **[COMPLETE_ANALYSIS_SUMMARY.md](COMPLETE_ANALYSIS_SUMMARY.md)** - In-depth technical analysis
-- **[LAST DEVELOPMENT PROGRESS 2.md](LAST%20DEVELOPMENT%20PROGRESS%202.md)** - Previous progress log (v2.2.1)
-- **[GET_POST_FILTERING_BUGFIX_ANALYSIS_AND_HARDENING.md](GET_POST_FILTERING_BUGFIX_ANALYSIS_AND_HARDENING.md)** - v2.2.1 bugfix and hardening details
+- **[LAST DEVELOPMENT PROGRESS 2.md](LAST%20DEVELOPMENT%20PROGRESS%202.md)** - Previous progress log (v1.9.9)
+- **[GET_POST_FILTERING_BUGFIX_ANALYSIS_AND_HARDENING.md](GET_POST_FILTERING_BUGFIX_ANALYSIS_AND_HARDENING.md)** - v1.9.9 bugfix and hardening details
 - **[TABLE_FEATURES_MATRIX.md](TABLE_FEATURES_MATRIX.md)** - Concise feature/API matrix
 
 ### 📋 Reference Materials
@@ -151,7 +151,13 @@ Welcome to the comprehensive documentation for the Incodiy Table Component. This
 
 ## 📋 Version-Specific Documentation
 
-### Current Version (v2.3.0) - Zero-Configuration & Auto-Discovery
+### Current Version (v2.0.2) - Join Guard, Action Merge, Search UI
+- **Fix**: Duplicate JOIN guard to prevent MySQL "Not unique table/alias" during filters combining relationship fields.
+- **Fix**: Action list merge warning resolved by assigning variables before merge.
+- **Hardening**: Search UI chained-select index safety (normalized fieldsets, guarded indexes).
+- **Notes**: All improvements are compatible with v2.0.0 Enhanced Architecture and zero-config flow.
+
+### Previous Version (v2.0.0) - Zero-Configuration & Auto-Discovery System
 - **🚀 MAJOR ENHANCEMENT**: Complete zero-configuration system with intelligent auto-discovery
 - **🧠 Enhanced Auto-Discovery**: Automatic schema detection, connection mapping, and intelligent column selection
 - **🔧 View Support**: Perfect handling of database views without primary keys (no more "Unknown column 'id'" errors)

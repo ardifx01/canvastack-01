@@ -75,17 +75,41 @@ trait RelationshipHandlerTrait
         return [$currentTable . '.' . $column, $joins];
     }
 
-    // Apply joins once
+    // Apply joins once with extra guard against duplicate table joins
     private function applyRelationJoins($builder, array $joins): void
     {
         if (!property_exists($this, 'diyAppliedJoins')) { $this->diyAppliedJoins = []; }
+
+        // Inspect existing joins on the builder to prevent duplicate table/alias
+        $existingTables = [];
+        try {
+            $query = method_exists($builder, 'getQuery') ? $builder->getQuery() : null;
+            if ($query && property_exists($query, 'joins') && is_array($query->joins)) {
+                foreach ($query->joins as $join) {
+                    // Laravel JoinClause exposes table name via ->table
+                    if (is_object($join) && property_exists($join, 'table')) {
+                        $existingTables[] = strtolower((string) $join->table);
+                    }
+                }
+            }
+        } catch (\Throwable $e) { /* noop */ }
+
         foreach ($joins as $j) {
-            $sig = strtolower(($j['type'] ?? 'left') . '|' . $j['table'] . '|' . $j['first'] . '|' . $j['second']);
-            if (in_array($sig, $this->diyAppliedJoins, true)) continue;
+            $table = strtolower($j['table']);
+            $sig = strtolower(($j['type'] ?? 'left') . '|' . $table . '|' . $j['first'] . '|' . $j['second']);
+
+            // Skip if already applied by our own guard
+            if (in_array($sig, $this->diyAppliedJoins, true)) { continue; }
+            // Skip if builder already has a join for the same table/alias
+            if (in_array($table, $existingTables, true)) { continue; }
+
             $type = strtolower($j['type'] ?? 'left');
             if ('left' === $type) { $builder->leftJoin($j['table'], $j['first'], '=', $j['second']); }
             else { $builder->join($j['table'], $j['first'], '=', $j['second']); }
+
+            // Track both signature and table to avoid re-adding in later phases
             $this->diyAppliedJoins[] = $sig;
+            $existingTables[] = $table;
         }
     }
 

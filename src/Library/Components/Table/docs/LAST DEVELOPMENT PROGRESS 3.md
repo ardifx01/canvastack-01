@@ -1,6 +1,6 @@
-# LAST DEVELOPMENT PROGRESS 3 (Comprehensive) — v2.3.0 Zero-Configuration Achievement
+# LAST DEVELOPMENT PROGRESS 3 (Comprehensive) — v2.0.0 Zero-Configuration Achievement
 
-This document chronicles the complete development journey from v2.2.1 to v2.3.0, documenting the **revolutionary zero-configuration system implementation** that transforms the developer experience from hours of manual setup to minutes of automated intelligence.
+This document chronicles the complete development journey from v1.9.9 to v2.0.0, documenting the **revolutionary zero-configuration system implementation** that transforms the developer experience from hours of manual setup to minutes of automated intelligence.
 
 ---
 
@@ -388,6 +388,26 @@ ORDER BY period DESC  // ✅ Uses 'period' instead of non-existent 'id'
 ---
 
 ## 📊 Impact Analysis
+
+---
+
+### Addendum — 2025-08-23 (v2.3.2 Patch)
+
+#### Context
+- UserActivity page filters produced SQLSTATE[42000] Not unique table/alias due to duplicate JOINs on base_user_group/base_group.
+- Previous warning “Only variables should be passed by reference” in action merge and potential index error in Search UI chained selects.
+
+#### Fixes
+- Guarded JOIN assembly: relationship foreign key joins collected and applied via applyRelationJoins, which inspects existing builder joins and tracks signatures to skip duplicates.
+- Action list merge: determineActionList assigns defaults/overrides before array_merge_recursive_distinct.
+- Search UI: normalize fieldsets and guard index access for next/first/last targets.
+
+#### Verification
+- GET render OK; filtered requests combining username + group_info return data without duplicate alias errors.
+- Action column visible; search modal fields complete.
+
+#### Next
+- Keep debug flagged logging for a few sessions; consider small registry adapters for frequent temp tables; proceed with universal data source roadmap after broader verification.
 
 ---
 

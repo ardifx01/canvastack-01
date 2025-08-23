@@ -59,6 +59,62 @@ class UserActivityController extends Controller {
 		
 		$this->table->setUrlValue('user_id');
 		
+		// ⭐ CRITICAL: Create ALL temp tables FIRST before any table configuration
+		try {
+			\Log::info("🔧 Creating all temp tables before table configuration");
+			
+			// Create temp_user_never_login table
+			if (1 === $this->session['group_id']) {
+				\Log::info("🔧 Creating temp_user_never_login table");
+				$this->model->user_never_login();
+				
+				// Force database commit and verify
+				\DB::commit();
+				sleep(1); // Give database time to commit
+				
+				if (!\Schema::hasTable('temp_user_never_login')) {
+					throw new \Exception("Failed to create temp table: temp_user_never_login");
+				}
+				\Log::info("✅ temp_user_never_login created and verified");
+			}
+			
+			// Create temp_montly_activity table
+			\Log::info("🔧 Creating temp_montly_activity table");
+			$this->model->montly_activity();
+			
+			// Force database commit and verify
+			\DB::commit();
+			sleep(1); // Give database time to commit
+			
+			if (!\Schema::hasTable('temp_montly_activity')) {
+				throw new \Exception("Failed to create temp table: temp_montly_activity");
+			}
+			\Log::info("✅ temp_montly_activity created and verified");
+			
+			// Double-check both tables exist before proceeding
+			$table1Exists = \Schema::hasTable('temp_user_never_login');
+			$table2Exists = \Schema::hasTable('temp_montly_activity');
+			
+			\Log::info("🔍 Final table verification", [
+				'temp_user_never_login' => $table1Exists ? 'EXISTS' : 'MISSING',
+				'temp_montly_activity' => $table2Exists ? 'EXISTS' : 'MISSING'
+			]);
+			
+			if (!$table2Exists || (1 === $this->session['group_id'] && !$table1Exists)) {
+				throw new \Exception("Temp tables verification failed after creation");
+			}
+			
+		} catch (\Exception $e) {
+			\Log::error("❌ Critical error creating temp tables", [
+				'error' => $e->getMessage(),
+				'file' => $e->getFile(),
+				'line' => $e->getLine()
+			]);
+			
+			// Fallback: show error message to user
+			return redirect()->back()->with('error', 'Unable to create user activity data tables. Please try again.');
+		}
+		
 		if (1 === $this->session['group_id']) {
 			
 			$this->table->openTab('User Never Login');
@@ -100,6 +156,7 @@ class UserActivityController extends Controller {
 				
 	//	$this->table->removeButtons(['view', 'edit', 'delete']);
 		$this->table->setActions(['manage'], ['view', 'insert', 'edit', 'delete']);
+		
 		$this->table->addTabContent('
 			<p style="margin-bottom: 1px !important;"><i><b>Information Table</b></i></p>
 			<div style="background-color: #fbf2f2; margin: 0; padding: 10px; border: #fdd1d1 solid 1px; border-radius: 4px;">
@@ -113,6 +170,7 @@ class UserActivityController extends Controller {
 			<br />
 		');
 		
+		// Now configure table with temp table already created
 		$this->table->runModel($this->model, 'montly_activity::temp', false);
 		$this->table->lists($this->model_table, $this->fields, ['manage']);
 		$this->table->clear();

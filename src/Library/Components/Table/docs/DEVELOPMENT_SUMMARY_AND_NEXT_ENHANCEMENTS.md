@@ -468,6 +468,36 @@ if ($tableName === 'users') {
 
 ##  **ACTION ITEMS**
 
+### Session: 2025-08-23 — Duplicate JOIN Guard, Action Merge, Search UI
+- Scope/Area: Table System / UserActivity / Legacy Fallback + Relationships
+- Context:
+  - Page/Feature: system/managements/user_activity (tabs: temp_user_never_login, temp_montly_activity)
+  - Data sources: dynamic temp tables (legacy path) and users table relations (base_user_group, base_group)
+- Issues observed:
+  - DataTables error: SQLSTATE[42000] Not unique table/alias: 'base_user_group' during filtered requests
+  - Warning earlier: Only variables should be passed by reference (determineActionList)
+  - Search UI chained select index could compute invalid index
+- Root cause:
+  - Duplicate JOINs added from multiple paths (relationship setup + filter mapping) without de-duplication guard
+  - array_merge_recursive_distinct received function call result directly (PHP reference rule)
+  - Unsafe index math when fieldset length < 2
+- Fixes implemented:
+  - Datatables.php: Foreign key relationship joins are collected and applied through guarded join applier to avoid duplicates
+  - RelationshipHandlerTrait.php: applyRelationJoins inspects existing builder joins and tracks signatures to skip duplicates
+  - Datatables.php: determineActionList assigns defaults/overrides variables before merge
+  - Search.php: normalized fieldsets with array_values, guarded first/last target and next_target calculation
+- Verification steps:
+  1. Load UserActivity and apply filters for username and group_info simultaneously
+  2. Confirm: no SQL duplicate alias error; data renders; action column present; search modal lists expected fields
+  3. Inspect storage/logs/laravel.log for Enhanced→Legacy transitions and absence of errors
+- Results:
+  - Render OK on GET; filters now return rows without duplicate alias error
+  - Action list/column visible; Search UI stable
+- Next actions:
+  - Short-term: keep debug logs enabled behind config flag for a few sessions; verify on other relation-heavy pages
+  - Mid-term: consider small registry adapter entries for frequent temp tables to prefer Enhanced path
+  - Long-term: proceed with Universal Data Source Support after broader verification
+
 ### **URGENT (Critical Priority - Must Fix First)**
 - [ ] **DEBUG RELATIONSHIP DATA ISSUE:** group_name, group_alias, group_info still showing NULL
 - [ ] Test User model getUserInfo() method independently  

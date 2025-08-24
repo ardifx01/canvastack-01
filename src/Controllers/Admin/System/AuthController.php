@@ -32,14 +32,17 @@ class AuthController extends Controller {
 	public function __construct() {
 		parent::__construct();
 		
-		$this->authRouteInfo['current_path'] = Route::getCurrentRoute()->getName();
-		if ('login_processor' === strtolower(Route::getCurrentRoute()->getName())) {
+		$currentRoute = Route::getCurrentRoute();
+		$routeName = $currentRoute ? $currentRoute->getName() : 'unknown';
+		
+		$this->authRouteInfo['current_path'] = $routeName;
+		if ('login_processor' === strtolower($routeName)) {
 			$this->authRouteInfo['module_name'] = 'Login';
 		} else {
-			$this->authRouteInfo['module_name'] = ucwords(Route::getCurrentRoute()->getName());
+			$this->authRouteInfo['module_name'] = ucwords($routeName);
 		}
 		
-		$this->authRouteInfo['page_info']  = strtolower(Route::getCurrentRoute()->getName());
+		$this->authRouteInfo['page_info']  = strtolower($routeName);
 		$this->authRouteInfo['controller'] = 'AuthController';
 		
 	}

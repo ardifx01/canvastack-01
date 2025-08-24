@@ -248,7 +248,8 @@ class Search {
 				foreach ($this->input_relations['type'] as $field => $type) {
 					$values[$field] = null;
 					
-					if ($open_field === $field) $values[$field] = $this->set_first_selectbox($tablename, $field_value, $field);
+					// ⭐ FIX: Generate data for ALL fields, not just open_field
+					$values[$field] = $this->set_first_selectbox($tablename, $field_value, $field);
 					
 					$classFieldInfo = "{$this->cleardash($info)}Field";
 					if (!empty($values[$field])) {

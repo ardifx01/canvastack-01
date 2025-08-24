@@ -11,9 +11,6 @@ use Incodiy\Codiy\Library\Components\Table\Contracts\DataProviderInterface;
 use Incodiy\Codiy\Library\Components\Table\Providers\DataProvider;
 use Incodiy\Codiy\Library\Components\Table\Registry\ModelRegistry;
 use Incodiy\Codiy\Library\Components\Table\Adapters\DataTablesAdapter;
-use Incodiy\Codiy\Library\Components\Table\Support\Guarded;
-use Incodiy\Codiy\Library\Components\Table\Support\Diagnostics;
-use Incodiy\Codiy\Library\Components\Table\Support\TableLog;
 
 /**
  * Datatables processor for handling table operations
@@ -108,7 +105,7 @@ class Datatables
      */
     private function getImageExtensions()
     {
-        return \Incodiy\Codiy\Library\Components\Table\Support\TableConfig::imageExtensions();
+        return $this->safeConfig('datatables.image_extensions', ['jpg', 'jpeg', 'png', 'gif']);
     }
 
     /**
@@ -116,7 +113,11 @@ class Datatables
      */
     private function getDefaultPagination()
     {
-        return \Incodiy\Codiy\Library\Components\Table\Support\TableConfig::defaultPagination();
+        return $this->safeConfig('datatables.default_pagination', [
+            'start' => 0,
+            'length' => 10,
+            'total' => 0
+        ]);
     }
 
     /**
@@ -124,7 +125,7 @@ class Datatables
      */
     private function getDefaultActions()
     {
-        return \Incodiy\Codiy\Library\Components\Table\Support\TableConfig::defaultActions();
+        return $this->safeConfig('datatables.default_actions', ['view', 'insert', 'edit', 'delete']);
     }
 
     /**
@@ -132,7 +133,7 @@ class Datatables
      */
     private function getBlacklistedFields()
     {
-        return \Incodiy\Codiy\Library\Components\Table\Support\TableConfig::blacklistedFields();
+        return $this->safeConfig('datatables.blacklisted_fields', ['password', 'action', 'no']);
     }
 
     /**
@@ -140,7 +141,10 @@ class Datatables
      */
     private function getReservedParameters()
     {
-        return \Incodiy\Codiy\Library\Components\Table\Support\TableConfig::reservedParameters();
+        return $this->safeConfig('datatables.reserved_parameters', [
+            'renderDataTables', 'draw', 'columns', 'order', 'start', 
+            'length', 'search', 'difta', '_token', '_'
+        ]);
     }
 
     /**
@@ -280,41 +284,9 @@ class Datatables
             $actionConfig = $this->setupActions($config, $tableName);
             if (config('datatables.debug', false)) { \Log::info("✅ Actions configured", ['action_list_count' => count($actionConfig['actionList'])]); }
 
-            // Setup relationships and joins (conditional via feature flag)
-            $relationsViaTrait = (bool) (config('datatable.features.relations_via_trait', false));
-            if ($relationsViaTrait && method_exists($this, 'setupRelationshipsTrait')) {
-                $modelData = $this->setupRelationshipsTrait($modelData, $config);
-                if (config('datatables.debug', false)) { \Log::info("✅ Relationships setup via trait"); }
-            } else {
-                // Legacy path: add minimal safe alias mapping when relation columns are expected
-                try {
-                    $modelData = $this->setupRelationships($modelData, $config, $tableName);
-                } catch (\Throwable $e) {
-                    // proceed; legacy method optional in some copies
-                }
-                if (method_exists($this, 'mapDotColumnsToSelects')) {
-                    $baseModel = method_exists($modelData, 'getModel') ? $modelData->getModel() : null;
-                    if ($baseModel) {
-                        // Infer dot columns from config columns (e.g., group_name => group.name)
-                        $columns = $config['columns'] ?? [];
-                        $dotToAlias = [];
-                        foreach ($columns as $col) {
-                            $name = is_array($col) ? ($col['name'] ?? $col['data'] ?? null) : (is_string($col) ? $col : null);
-                            if (!$name) { continue; }
-                            if (false !== strpos($name, '.')) { $dotToAlias[$name] = str_replace('.', '_', $name); continue; }
-                            if (false !== strpos($name, '_')) {
-                                [$rel, $field] = explode('_', $name, 2);
-                                if ($rel && $field && method_exists($baseModel, $rel)) { $dotToAlias[$rel.'.'.$field] = $name; }
-                            }
-                        }
-                        if (!empty($dotToAlias)) {
-                            // apply joins/selects without disturbing existing selects
-                            $this->mapDotColumnsToSelects($modelData, $baseModel, array_keys($dotToAlias));
-                        }
-                    }
-                }
-                if (config('datatables.debug', false)) { \Log::info("✅ Relationships setup completed (legacy + safe alias)"); }
-            }
+            // Setup relationships and joins
+            $modelData = $this->setupRelationships($modelData, $config, $tableName);
+            if (config('datatables.debug', false)) { \Log::info("✅ Relationships setup completed"); }
 
             // Apply conditions and filters
             $modelData = $useTraits
@@ -354,23 +326,6 @@ class Datatables
                     'table' => $tableName
                 ]);
                 throw $e; // Re-throw as this is critical
-            }
-
-            // Apply ordering (conditional via feature flag)
-            try {
-                $orderingViaTrait = (bool) (config('datatable.features.ordering_via_trait', false));
-                if ($orderingViaTrait && method_exists($this, 'applyOrderingTrait')) {
-                    $this->applyOrderingTrait($datatables, $modelData, $config);
-                    if (config('datatables.debug', false)) { \Log::info("✅ Ordering applied via trait"); }
-                } else {
-                    if (config('datatables.debug', false)) { \Log::info("↩️ Ordering via legacy/default behavior"); }
-                }
-            } catch (\Exception $e) {
-                \Log::warning("⚠️ Ordering phase encountered an issue", [
-                    'error' => $e->getMessage(),
-                    'line' => $e->getLine(),
-                    'table' => $tableName
-                ]);
             }
 
             // Apply column modifications with error isolation
@@ -422,19 +377,6 @@ class Datatables
                 }
                 
                 $result = $this->finalizeDatatable($datatables, $indexLists);
-
-                // Lightweight diagnostics: ensure dot columns resolved in first row
-                try {
-                    $payload = $result->original ?? null;
-                    if (is_array($payload) && isset($payload['data'][0]) && is_array($payload['data'][0])) {
-                        $requested = $this->getExpectedColumnsFromRequest();
-                        $resolved  = array_keys($payload['data'][0]);
-                        if (Diagnostics::missingRelationalCols($requested, array_fill_keys($resolved, true))) {
-                            TableLog::warning('Diagnostics(Legacy): missing relational columns after finalize', Diagnostics::report($requested, $resolved));
-                        }
-                    }
-                } catch (\Throwable $ignored) {}
-
                 \Log::info("🎉 DataTables processing completed successfully", [
                     'index_column_added' => $indexLists,
                     'dt_rowindex_needed' => $needsIndexColumn
@@ -1226,7 +1168,6 @@ class Datatables
                 \Log::info("📝 Using custom first field", ['first_field' => $firstField]);
             }
 
-            // Build base config
             $config = [
                 'privileges' => $this->set_module_privileges(),
                 'columnData' => $columnData,
@@ -1235,30 +1176,6 @@ class Datatables
                 'buttonsRemoval' => $tableConfig['button_removed'] ?? [],
                 'orderBy' => $tableConfig['orderby'] ?? []
             ];
-
-            // Enrich config with dot_columns and declared_relations from runtime (for trait-based relations)
-            try {
-                $rt = \Incodiy\Codiy\Library\Components\Table\Craft\DatatableRuntime::get($tableName);
-                if ($rt && isset($rt->datatables)) {
-                    if (!empty($rt->datatables->dot_columns) && is_array($rt->datatables->dot_columns)) {
-                        $config['dot_columns'] = $rt->datatables->dot_columns;
-                    }
-                    if (!empty($rt->datatables->declared_relations) && is_array($rt->datatables->declared_relations)) {
-                        $config['declared_relations'] = $rt->datatables->declared_relations;
-                    }
-                }
-            } catch (\Throwable $e) { /* noop */ }
-
-            // Provide a generic 'columns' list to aid inference in RelationshipHandlerTrait if dot_columns absent
-            // Flatten list entries into names (supports simple strings)
-            try {
-                if (empty($config['columns'])) {
-                    $config['columns'] = [];
-                    foreach ((array)$tableLists as $col) {
-                        if (is_string($col) && $col !== '') { $config['columns'][] = $col; }
-                    }
-                }
-            } catch (\Throwable $e) { /* noop */ }
             
             \Log::info("✅ Configuration loaded successfully", [
                 'first_field' => $firstField,
@@ -1814,19 +1731,7 @@ class Datatables
             'has_count_method' => method_exists($modelData, 'count') ? 'YES' : 'NO'
         ]);
         
-        // Handle temp tables that don't have 'id' column
-        if (method_exists($modelData, 'from') && strpos($modelData->from, 'temp_') === 0) {
-            // For temp tables, clone the query and remove any WHERE clauses that might reference 'id'
-            $countQuery = clone $modelData;
-            $countQuery->wheres = []; // Clear all WHERE clauses
-            $config['total'] = $countQuery->count();
-            \Log::info("🔧 Used temp table count without WHERE clauses", [
-                'table' => $modelData->from,
-                'total' => $config['total']
-            ]);
-        } else {
-            $config['total'] = $modelData->count();
-        }
+        $config['total'] = $modelData->count();
 
         // Check both GET and POST data for pagination parameters
         $requestData = array_merge($_GET, $_POST);
@@ -1864,7 +1769,7 @@ class Datatables
                 ] : []
             ]);
         } else {
-            $this->setupOrdering($datatables, $config['orderBy'], $config['columnData'], $modelData, $config['tableName'] ?? null);
+            $this->setupOrdering($datatables, $config['orderBy'], $config['columnData']);
         }
 
         return $datatables;
@@ -1888,7 +1793,7 @@ class Datatables
     /**
      * Setup column ordering with relationship support
      */
-    private function setupOrdering($datatables, $orderBy, $columnData, $modelData = null, $tableName = null)
+    private function setupOrdering($datatables, $orderBy, $columnData)
     {
         if (!empty($orderBy)) {
             $column = $orderBy['column'];
@@ -1900,18 +1805,25 @@ class Datatables
                 'orderBy_config' => $orderBy
             ]);
             
-            $datatables->order(function ($query) use ($column, $order, $modelData, $tableName) {
-                // DYNAMIC COLUMN QUALIFICATION - NO HARD-CODE!
-                $qualifiedColumn = $this->qualifyColumnDynamically($query, $column, $modelData, $tableName);
+            $datatables->order(function ($query) use ($column, $order) {
+                // Map relationship columns to actual joined field names
+                $relationshipFieldMap = [
+                    'group_info' => 'base_group.group_info',
+                    'group_name' => 'base_group.group_name', 
+                    'group_alias' => 'base_group.group_alias'
+                ];
                 
-                \Log::info('✅ APPLYING DYNAMIC ORDER BY', [
+                // Use mapped field name if it's a relationship column, otherwise use original
+                $orderColumn = $relationshipFieldMap[$column] ?? $column;
+                
+                \Log::info('✅ APPLYING ORDER BY', [
                     'original_column' => $column,
-                    'qualified_column' => $qualifiedColumn,
+                    'mapped_column' => $orderColumn,
                     'order_direction' => $order,
-                    'table_name' => $tableName
+                    'is_relationship' => isset($relationshipFieldMap[$column])
                 ]);
                 
-                $query->orderBy($qualifiedColumn, $order);
+                $query->orderBy($orderColumn, $order);
             });
         }
         
@@ -1920,14 +1832,14 @@ class Datatables
         if ($useTraits) {
             $this->handleDataTablesOrderingTrait($datatables);
         } else {
-            $this->handleDataTablesOrdering($datatables, $modelData, $tableName);
+            $this->handleDataTablesOrdering($datatables);
         }
     }
 
     /**
      * Handle DataTables dynamic ordering from frontend clicks
      */
-    private function handleDataTablesOrdering($datatables, $modelData = null, $tableName = null)
+    private function handleDataTablesOrdering($datatables)
     {
         // Check if there's ordering data from DataTables request
         $request = request();
@@ -1946,134 +1858,27 @@ class Datatables
                     'total_columns' => count($columns)
                 ]);
                 
-                $datatables->order(function ($query) use ($columnName, $direction, $modelData, $tableName) {
-                    // DYNAMIC COLUMN QUALIFICATION - NO HARD-CODE!
-                    $qualifiedColumn = $this->qualifyColumnDynamically($query, $columnName, $modelData, $tableName);
+                $datatables->order(function ($query) use ($columnName, $direction) {
+                    // Map relationship columns to actual joined field names  
+                    $relationshipFieldMap = [
+                        'group_info' => 'base_group.group_info',
+                        'group_name' => 'base_group.group_name',
+                        'group_alias' => 'base_group.group_alias'
+                    ];
                     
-                    \Log::info('✅ APPLYING DYNAMIC FRONTEND ORDER BY', [
+                    // Use mapped field name if it's a relationship column, otherwise use original
+                    $orderColumn = $relationshipFieldMap[$columnName] ?? $columnName;
+                    
+                    \Log::info('✅ APPLYING FRONTEND ORDER BY', [
                         'original_column' => $columnName,
-                        'qualified_column' => $qualifiedColumn,
+                        'mapped_column' => $orderColumn,
                         'direction' => $direction,
-                        'table_name' => $tableName
+                        'is_relationship' => isset($relationshipFieldMap[$columnName])
                     ]);
                     
-                    $query->orderBy($qualifiedColumn, $direction);
+                    $query->orderBy($orderColumn, $direction);
                 });
             }
-        }
-    }
-
-    /**
-     * DYNAMIC COLUMN QUALIFICATION - AUTO-DETECT TABLE OWNERSHIP
-     * NO HARD-CODE! Automatically detects which table owns which column
-     */
-    private function qualifyColumnDynamically($query, $column, $modelData = null, $tableName = null)
-    {
-        try {
-            // If column already qualified (contains dot), return as-is
-            if (strpos($column, '.') !== false) {
-                return $column;
-            }
-            
-            // Get all joined tables from query
-            $joinedTables = $this->getJoinedTablesFromQuery($query);
-            
-            // Auto-detect which table owns this column
-            $ownerTable = $this->detectColumnOwner($column, $joinedTables, $tableName);
-            
-            // Return qualified column
-            $qualified = $ownerTable ? "{$ownerTable}.{$column}" : $column;
-            
-            \Log::info('🔍 DYNAMIC COLUMN QUALIFICATION', [
-                'column' => $column,
-                'detected_owner' => $ownerTable,
-                'qualified_result' => $qualified,
-                'joined_tables' => $joinedTables
-            ]);
-            
-            return $qualified;
-            
-        } catch (\Exception $e) {
-            \Log::warning('⚠️ Column qualification failed, using original', [
-                'column' => $column,
-                'error' => $e->getMessage()
-            ]);
-            return $column;
-        }
-    }
-    
-    /**
-     * Get all joined tables from query builder
-     */
-    private function getJoinedTablesFromQuery($query)
-    {
-        $joinedTables = [];
-        
-        try {
-            // Get base table
-            if (method_exists($query, 'getQuery')) {
-                $baseQuery = $query->getQuery();
-                if (isset($baseQuery->from)) {
-                    $joinedTables[] = $baseQuery->from;
-                }
-                
-                // Get joined tables
-                if (isset($baseQuery->joins) && is_array($baseQuery->joins)) {
-                    foreach ($baseQuery->joins as $join) {
-                        if (isset($join->table)) {
-                            $joinedTables[] = $join->table;
-                        }
-                    }
-                }
-            }
-        } catch (\Exception $e) {
-            \Log::warning('Failed to extract joined tables', ['error' => $e->getMessage()]);
-        }
-        
-        return array_unique($joinedTables);
-    }
-    
-    /**
-     * AUTO-DETECT which table owns a column by checking schema
-     */
-    private function detectColumnOwner($column, $joinedTables, $defaultTable = null)
-    {
-        try {
-            $schema = \DB::getDoctrineSchemaManager();
-            $tablesWithColumn = [];
-            
-            foreach ($joinedTables as $table) {
-                try {
-                    $columns = $schema->listTableColumns($table);
-                    if (isset($columns[$column])) {
-                        $tablesWithColumn[] = $table;
-                    }
-                } catch (\Exception $e) {
-                    // Table might not exist or accessible, skip
-                    continue;
-                }
-            }
-            
-            // If only one table has this column, use it
-            if (count($tablesWithColumn) === 1) {
-                return $tablesWithColumn[0];
-            }
-            
-            // If multiple tables have this column, prefer base table
-            if (in_array($defaultTable, $tablesWithColumn)) {
-                return $defaultTable;
-            }
-            
-            // If still ambiguous, return first found
-            return $tablesWithColumn[0] ?? $defaultTable;
-            
-        } catch (\Exception $e) {
-            \Log::warning('Schema detection failed, using default table', [
-                'column' => $column,
-                'default_table' => $defaultTable,
-                'error' => $e->getMessage()
-            ]);
-            return $defaultTable;
         }
     }
 
@@ -2483,11 +2288,7 @@ class Datatables
         $actionData = method_exists($this, 'composeActionData')
             ? $this->composeActionData($modelData, $actionConfig, $data)
             : $this->prepareActionData($modelData, $actionConfig, $data);
-        $urlTarget = is_object($data) && isset($data->datatables->useFieldTargetURL) 
-            ? $data->datatables->useFieldTargetURL 
-            : (is_array($data) && isset($data['datatables']['useFieldTargetURL']) 
-                ? $data['datatables']['useFieldTargetURL'] 
-                : 'id');
+        $urlTarget = $data->datatables->useFieldTargetURL;
 
         $datatables->addColumn('action', function ($model) use ($actionData, $urlTarget) {
             return $this->setRowActionURLs($model, $actionData, $urlTarget);
@@ -2947,47 +2748,7 @@ class Datatables
         $joins = $this->buildJoinClauses($config['foreignKeys']);
         $whereClause = $this->buildWhereClause($config);
 
-        // Support dot columns: map relation.column to alias and select by alias when available
-        $target = $config['target'];
-        $selectTarget = $target;
-        
-        // If target is unqualified and base table doesn't have it, try qualify with first foreign table
-        try {
-            if (strpos($target, '.') === false) {
-                // Check base table has the column
-                $safeCol = preg_replace('/[^a-zA-Z0-9_]/', '', $target);
-                $baseTable = $config['table'];
-                $checkSql = "SHOW COLUMNS FROM `{$baseTable}` LIKE '{$safeCol}'";
-                $exists = diy_query($checkSql, 'SELECT');
-                if (empty($exists) && !empty($config['foreignKeys']) && is_array($config['foreignKeys'])) {
-                    // Try to find a foreign table that has this column
-                    $candidateTable = null;
-                    foreach ($config['foreignKeys'] as $fk => $lk) {
-                        if (!is_string($fk) || strpos($fk, '.') === false) { continue; }
-                        $foreignTable = explode('.', $fk)[0];
-                        try {
-                            $chk = diy_query("SHOW COLUMNS FROM `{$foreignTable}` LIKE '{$safeCol}'", 'SELECT');
-                            if (!empty($chk)) { $candidateTable = $foreignTable; break; }
-                        } catch (\Throwable $e2) { /* skip */ }
-                    }
-                    if ($candidateTable) {
-                        $target = $candidateTable . '.' . $safeCol;
-                        $selectTarget = $target . ' AS ' . $safeCol;
-                    }
-                }
-            }
-        } catch (\Throwable $e) { /* noop */ }
-        
-        // If target contains a dot, alias it for DISTINCT select
-        if (strpos($target, '.') !== false) {
-            $alias = str_replace('.', '_', $target);
-            // Preserve explicit alias if already set above
-            if (stripos($target, ' as ') === false) {
-                $selectTarget = "$target AS $alias";
-            }
-        }
-        
-        $sql = "SELECT DISTINCT {$selectTarget} FROM `{$config['table']}`";
+        $sql = "SELECT DISTINCT `{$config['target']}` FROM `{$config['table']}`";
         
         if (!empty($joins)) {
             $sql .= " {$joins}";

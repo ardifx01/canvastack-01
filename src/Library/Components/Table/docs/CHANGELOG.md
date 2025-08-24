@@ -19,6 +19,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v1.9.0
 
 ---
 
+## [2.0.3] - 2024-06-05
+
+### 🚨 Critical Issues Analysis — Column Ambiguity & Filter Processing
+
+### Issues Identified
+- **SQLSTATE[1052] Ambiguous Column Error**: ORDER BY `active` clause fails when multiple joined tables contain same column name
+- **Filter Processing Issue**: Dependent filters showing "undefined" values after parent filter selection
+- **Legacy Architecture Fallback**: Enhanced architecture falling back to legacy path with unqualified columns
+
+### Root Cause Analysis
+- **Column Ambiguity**: SQL queries using unqualified column names in ORDER BY clauses with multiple JOINs
+- **Filter Chain Dependency**: Filter options not refreshed properly when dependent filters change
+- **Architecture Path**: System falling back to legacy processing where relationship columns lack qualification
+
+### Attempted Solutions
+- **Dynamic Column Qualification System**: Implemented schema-based auto-detection methods
+- **Three-Method Approach**: `qualifyColumnDynamically()`, `getJoinedTablesFromQuery()`, `detectColumnOwner()`
+- **Parameter Enhancement**: Enhanced method signatures for better context passing
+
+### Current Status
+- ❌ **Column Ambiguity**: Active issue - dynamic qualification not executing in runtime
+- ❌ **Filter Processing**: Dependent filters still showing undefined values
+- ⚠️ **Implementation Gap**: Solution implemented but integration path needs verification
+
+### Technical Details
+```php
+// Dynamic Column Qualification Implementation
+private function qualifyColumnDynamically($query, $column, $modelData = null, $tableName = null)
+{
+    $joinedTables = $this->getJoinedTablesFromQuery($query);
+    $ownerTable = $this->detectColumnOwner($column, $joinedTables, $tableName);
+    return $ownerTable ? "{$ownerTable}.{$column}" : $column;
+}
+```
+
+### SQL Error Example
+```sql
+-- Current (Failing)
+ORDER BY `active` ASC  -- ❌ Ambiguous: users.active vs base_group.active
+
+-- Expected (Fixed)  
+ORDER BY `users`.`active` ASC  -- ✅ Qualified column reference
+```
+
+### Next Actions
+- Debug execution path for dynamic qualification methods
+- Verify method integration and parameter passing
+- Implement comprehensive logging for execution tracing
+- Consider simpler qualification approaches if needed
+
+### Files Modified
+- `Datatables.php` - Added dynamic qualification system (3 methods, ~150 lines)
+- Method signatures enhanced with context parameters
+
+### Documentation
+- Complete session analysis documented in LAST DEVELOPMENT PROGRESS 4.md
+- Technical implementation details and debugging roadmap included
+
+---
+
 ## [2.0.2] - 2024-05-18
 
 ### 🔧 Bugfix — Duplicate JOIN Guard & Filter Stability

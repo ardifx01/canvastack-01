@@ -13,9 +13,132 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 trait RelationshipHandlerTrait
 {
-    // Lazily join via resolver; this method remains as compatibility no-op
+    // Setup relationships via dot column mapping and safe joins
     private function setupRelationshipsTrait($query, array $config)
     {
+        try {
+            // Debug logging
+            if (config('datatables.debug', false)) {
+                \Log::info("🔧 setupRelationshipsTrait called", [
+                    'config_keys' => array_keys($config),
+                    'dot_columns' => $config['dot_columns'] ?? 'not_set',
+                    'declared_relations' => $config['declared_relations'] ?? 'not_set',
+                    'columns' => $config['columns'] ?? 'not_set'
+                ]);
+            }
+            
+            // Resolve base model and table
+            $model = method_exists($query, 'getModel') ? $query->getModel() : null;
+            $baseTable = method_exists($model, 'getTable') ? $model->getTable() : null;
+            if (!$model || !$baseTable) { 
+                if (config('datatables.debug', false)) {
+                    \Log::warning("⚠️ setupRelationshipsTrait: No model or table", [
+                        'has_model' => $model !== null,
+                        'has_table' => $baseTable !== null
+                    ]);
+                }
+                return $query; 
+            }
+
+            // Collect dot columns from config. Support both associative ['path' => 'alias'] and indexed string forms.
+            $dotColumnsAssoc = [];
+            $dotColumnsList  = [];
+            if (!empty($config['dot_columns']) && is_array($config['dot_columns'])) {
+                foreach ($config['dot_columns'] as $k => $v) {
+                    if (is_string($k) && false !== strpos($k, '.')) {
+                        $alias = (is_string($v) && $v !== '') ? $v : str_replace('.', '_', $k);
+                        $dotColumnsAssoc[$k] = $alias;
+                    } elseif (is_string($v)) {
+                        $entry = $v;
+                        $path = $entry; $alias = null;
+                        if (stripos($entry, ' as ') !== false) {
+                            [$path, $alias] = preg_split('/\s+as\s+/i', $entry, 2);
+                            $path = trim($path); $alias = trim($alias);
+                        }
+                        if ($path && false !== strpos($path, '.')) {
+                            if (!$alias) { $alias = str_replace('.', '_', $path); }
+                            $dotColumnsAssoc[$path] = $alias;
+                        }
+                    }
+                }
+            }
+
+            // If none provided, try to infer from columns definition if available
+            if (empty($dotColumnsAssoc) && !empty($config['columns']) && is_array($config['columns'])) {
+                foreach ($config['columns'] as $col) {
+                    $name = is_array($col) ? ($col['name'] ?? $col['data'] ?? null) : (is_string($col) ? $col : null);
+                    if (!$name) { continue; }
+                    // Inference 1: dot notation already provided in columns
+                    if (false !== strpos($name, '.')) {
+                        $dotColumnsAssoc[$name] = str_replace('.', '_', $name);
+                        continue;
+                    }
+                    // Inference 2: underscore alias like relation_field => relation.field
+                    // Example: group_name => group.name, group_info => group.info
+                    if (false !== strpos($name, '_')) {
+                        $parts = explode('_', $name, 2);
+                        $rel   = $parts[0] ?? '';
+                        $field = $parts[1] ?? '';
+                        if ($rel && $field && method_exists($model, $rel)) {
+                            $path = $rel . '.' . $field; // keep underscores inside field if any
+                            $dotColumnsAssoc[$path] = $name; // alias uses original column name
+                        }
+                    }
+                }
+            }
+
+            if (empty($dotColumnsAssoc)) { return $query; }
+
+            // Ensure base table columns are selected (avoid dropping existing selects)
+            try {
+                // If no explicit select, add baseTable.*
+                $query->addSelect($baseTable . '.*');
+            } catch (\Throwable $e) {
+                try { $query->select($baseTable . '.*'); } catch (\Throwable $e2) { /* noop */ }
+            }
+
+            // Apply joins and add selects with explicit aliases derived from mapping
+            foreach ($dotColumnsAssoc as $path => $alias) {
+                try {
+                    if (method_exists($this, 'resolveRelationColumn')) {
+                        [$qualified, $joins] = $this->resolveRelationColumn($model, $path);
+                        if (!empty($joins) && method_exists($this, 'applyRelationJoins')) { $this->applyRelationJoins($query, $joins); }
+                        // Add safe select with alias
+                        $query->addSelect($qualified . ' as ' . $alias);
+                        // Special-case guard: group.id to satisfy downstream needs when base_user_group join exists
+                        // This prevents SQLSTATE[42S22] on base_user_group.id selections in legacy paths
+                        if (strpos($path, 'group.') === 0 && !in_array($alias, ['group_id', 'groupid'], true)) {
+                            try {
+                                // Attempt to also select group.id as group_id if relation provides it
+                                $groupIdQualified = preg_replace('/\.[^.]+$/', '.id', $qualified);
+                                $query->addSelect($groupIdQualified . ' as group_id');
+                            } catch (\Throwable $g) { /* noop */ }
+                        }
+                    }
+                } catch (\Throwable $e) { /* continue mapping others */ }
+            }
+
+            // If any group.* relation columns are requested, ensure pivot fields are selected too
+            try {
+                $needsGroupPivot = false;
+                foreach (array_keys($dotColumnsAssoc) as $p) {
+                    if (strpos($p, 'group.') === 0) { $needsGroupPivot = true; break; }
+                }
+                if ($needsGroupPivot && method_exists($model, 'group')) {
+                    $relation = $model->group();
+                    if ($relation instanceof BelongsToMany) {
+                        $pivotTable = $relation->getTable();
+                        // Guard against duplicate selects
+                        try { $query->addSelect($pivotTable . '.group_id as pivot_group_id'); } catch (\Throwable $e) { /* noop */ }
+                        try { $query->addSelect($pivotTable . '.id as base_user_group_id'); } catch (\Throwable $e) { /* noop */ }
+                    }
+                }
+            } catch (\Throwable $e) { /* noop */ }
+        } catch (\Throwable $e) {
+            // Keep legacy behavior if anything goes wrong
+            // Intentionally silent to avoid breaking legacy path
+        }
+
         return $query;
     }
 

@@ -45,11 +45,11 @@ trait Privileges {
 			
 			$this->menu                        = $this->module_class->privileges($this->role_group, $pageType, $root_flag);
 			$this->module_privilege['current'] = $baseRouteInfo;
-			$this->module_privilege['roles']   = $this->module_class->roles;
+			$this->module_privilege['roles']   = $this->module_class->roles ?? [];
 			$this->module_privilege['info']    = $this->module_class->privileges;
 			
-			if (in_array(current_route(), $this->module_class->roles)) {
-				foreach ($this->module_class->roles as $roles) {
+			if (in_array(current_route(), $this->module_class->roles ?? [])) {
+				foreach (($this->module_class->roles ?? []) as $roles) {
 					if (diy_string_contained($roles, $baseRouteInfo)) {
 						if (!in_array($this->routelists_info($roles)['last_info'], ['index', 'insert', 'update', 'destroy'])) {
 							$actions[$baseRouteInfo][] = $this->routelists_info($roles)['last_info'];
@@ -79,11 +79,11 @@ trait Privileges {
 		$this->role_group = $role_group;
 		$this->module_privileges();
 		
-		return ['role_group' => $this->role_group, 'role' => $this->module_privilege['roles']];
+		return ['role_group' => $this->role_group, 'role' => $this->module_privilege['roles'] ?? []];
 	}
 	
 	private function access_role() {
-		$this->is_module_granted = in_array(current_route(), $this->module_class->roles);
+		$this->is_module_granted = in_array(current_route(), $this->module_class->roles ?? []);
 	}
 	
 	private function routelists_info($route = null) {

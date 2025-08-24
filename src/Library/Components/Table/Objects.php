@@ -35,6 +35,8 @@ class Objects extends Builder {
     public array $labels = [];
     public array $relations = [];
     public array $relational_data = [];
+    // Guard to avoid duplicate relation-key update churn
+    private array $processedRelationKeyUpdates = [];
     public array $filter_scripts = [];
     public array $hidden_columns = [];
     public ?string $labelTable = null;
@@ -754,6 +756,13 @@ class Objects extends Builder {
             ];
         }
         
+        // PERFORMANCE FIX: Prevent duplicate storage
+        $existingData = $this->relational_data[$relationFunction]['field_target'][$fieldset]['relation_data'][$relateKey] ?? null;
+        if ($existingData && $existingData['field_value'] === $dataValue) {
+            // Data already exists and is identical, skip storage and logging
+            return;
+        }
+        
         // Merge relation data instead of overwriting
         $this->relational_data[$relationFunction]['field_target'][$fieldset]['relation_data'][$relateKey] = [
             'field_value' => $dataValue,
@@ -761,12 +770,14 @@ class Objects extends Builder {
             'group_id' => $relateKey  // Default, might be overridden by pivot data
         ];
         
-        \Log::info("📝 STORING RELATION DATA", [
+        // Only log when actually storing new/updated data (reduced to DEBUG level)
+        \Log::debug("📝 STORING RELATION DATA", [
             'function' => $relationFunction,
             'field' => $fieldset,
             'relate_key' => $relateKey,
             'value' => $dataValue,
-            'total_relations' => count($this->relational_data[$relationFunction]['field_target'][$fieldset]['relation_data'] ?? [])
+            'total_relations' => count($this->relational_data[$relationFunction]['field_target'][$fieldset]['relation_data'] ?? []),
+            'action' => $existingData ? 'updated' : 'created'
         ]);
     }
     
@@ -784,6 +795,14 @@ class Objects extends Builder {
             // For user-group relationships, use group_id as the actual key for lookup
             if ($pivotField === 'group_id' && !empty($pivotData)) {
                 $actualGroupId = intval($pivotData);
+
+                // Skip if we've already processed this mapping to avoid log/data churn
+                $guardKey = $relationFunction . '|' . $fieldset . '|' . $relateKey . '->' . $actualGroupId;
+                if (isset($this->processedRelationKeyUpdates[$guardKey])) {
+                    continue;
+                }
+                $this->processedRelationKeyUpdates[$guardKey] = true;
+
                 \Log::info("🔄 UPDATING RELATION KEY for user-group", [
                     'original_key' => $relateKey,
                     'pivot_group_id' => $actualGroupId,
@@ -1515,6 +1534,13 @@ class Objects extends Builder {
      * Process table fields and labels
      */
     private function processTableFields(string $table_name, array $fields): array {
+        \Log::debug("🔄 PROCESSING TABLE FIELDS", [
+            'table_name' => $table_name,
+            'input_fields' => $fields,
+            'dot_columns' => $this->variables['dot_columns'] ?? [],
+            'declared_relations' => $this->variables['declared_relations'] ?? []
+        ]);
+        
         if (empty($fields)) {
             $defaultFields = $this->getDefaultTableFields($table_name);
             return is_array($defaultFields) ? $defaultFields : [];
@@ -1525,9 +1551,11 @@ class Objects extends Builder {
         
         // Extract labels from field definitions (field:label format)  
         $processedFields = $this->extractFieldLabels($fields);
+        \Log::debug("📝 AFTER EXTRACT LABELS", ['processed_fields' => $processedFields]);
         
         // Validate and process fields based on table type
         $validatedFields = $this->validateTableFields($table_name, $processedFields);
+        \Log::debug("✅ AFTER VALIDATION", ['validated_fields' => $validatedFields]);
         
         // Store original fields for relational processing
         $this->originalFieldsBeforeValidation = $originalFields;
@@ -1588,7 +1616,40 @@ class Objects extends Builder {
             return $fields;
         }
         
-        $validatedFields = $this->check_column_exist($table_name, $fields, $this->connection);
+        // Separate physical columns from relation columns
+        $physicalFields = [];
+        $relationFields = [];
+        $declaredRelations = $this->variables['declared_relations'] ?? [];
+        
+        foreach ($fields as $field) {
+            $isRelationField = false;
+            
+            // Check if field belongs to any declared relation
+            foreach ($declaredRelations as $relation) {
+                if (strpos($field, $relation . '_') === 0) {
+                    $relationFields[] = $field;
+                    $isRelationField = true;
+                    break;
+                }
+            }
+            
+            if (!$isRelationField) {
+                $physicalFields[] = $field;
+            }
+        }
+        
+        // Validate only physical columns against database schema
+        $validatedPhysicalFields = $this->check_column_exist($table_name, $physicalFields, $this->connection);
+        
+        // Combine validated physical fields with relation fields
+        $validatedFields = array_merge($validatedPhysicalFields, $relationFields);
+        
+        \Log::debug("🔍 FIELD VALIDATION BREAKDOWN", [
+            'physical_fields' => $physicalFields,
+            'relation_fields' => $relationFields,
+            'validated_physical' => $validatedPhysicalFields,
+            'final_validated' => $validatedFields
+        ]);
         
         // Handle model processing if fields validation failed
         if (empty($validatedFields) && !empty($this->modelProcessing)) {
@@ -1615,14 +1676,35 @@ class Objects extends Builder {
      * Process relational data and integrate with table fields
      */
     private function processRelationalData(string $table_name, array $fields): array {
+        \Log::debug("🔍 PROCESSING RELATIONAL DATA", [
+            'table_name' => $table_name,
+            'input_fields' => $fields,
+            'has_relational_data' => !empty($this->relational_data),
+            'relational_data_keys' => array_keys($this->relational_data ?? [])
+        ]);
+        
         if (empty($this->relational_data)) {
+            \Log::debug("⚠️ No relational data found, returning original fields");
             return $fields;
         }
         
         $fieldRelations = $this->extractFieldRelations($table_name);
         $originalFields = $this->originalFieldsBeforeValidation ?? [];
         
-        return $this->integrateRelationalFields($fields, $fieldRelations, $originalFields);
+        \Log::debug("🔗 FIELD RELATIONS EXTRACTED", [
+            'field_relations' => array_keys($fieldRelations),
+            'original_fields' => $originalFields
+        ]);
+        
+        $result = $this->integrateRelationalFields($fields, $fieldRelations, $originalFields);
+        
+        \Log::debug("✅ RELATIONAL DATA PROCESSED", [
+            'input_fields' => $fields,
+            'output_fields' => $result,
+            'fields_added' => array_diff($result, $fields)
+        ]);
+        
+        return $result;
     }
     
     /**
@@ -1737,6 +1819,15 @@ class Objects extends Builder {
      * Configure table columns settings
      */
     private function configureTableColumns(string $table_name, array $fields, $actions): void {
+        \Log::debug("🏗️ CONFIGURING TABLE COLUMNS", [
+            'table_name' => $table_name,
+            'fields' => $fields,
+            'actions' => $actions,
+            'has_dot_columns' => !empty($this->variables['dot_columns']),
+            'dot_columns' => $this->variables['dot_columns'] ?? [],
+            'declared_relations' => $this->variables['declared_relations'] ?? []
+        ]);
+        
         // Normalize actions
         if ($actions === false) {
             $actions = [];
@@ -1748,6 +1839,12 @@ class Objects extends Builder {
         
         // Apply various column settings
         $this->applyColumnSettings($table_name);
+        
+        \Log::debug("✅ TABLE COLUMNS CONFIGURED", [
+            'final_lists' => $this->columns[$table_name]['lists'] ?? [],
+            'searchable' => $this->columns[$table_name]['searchable'] ?? [],
+            'filter_groups' => $this->columns[$table_name]['filter_groups'] ?? []
+        ]);
     }
     
     /**

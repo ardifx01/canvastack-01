@@ -195,6 +195,12 @@ class DataProvider implements DataProviderInterface
             }
         }
 
+        // Phase 2: Apply custom_relationships from config
+        $customRels = $this->modelConfig['custom_relationships'] ?? [];
+        if (!empty($customRels) && isset($customRels['columns']) && ($this->dataSource instanceof EloquentBuilder || $this->dataSource instanceof QueryBuilder)) {
+            $this->applyCustomRelationships($customRels['columns']);
+        }
+
         // Get the actual data
         $data = $this->fetchData();
         
@@ -273,23 +279,45 @@ class DataProvider implements DataProviderInterface
      */
     public function applyFilters(array $filters): self
     {
-        // CRITICAL FIX: Filter out control parameters before applying to database
+        // Filter out control parameters before applying to database
         $validFilters = $this->filterValidParameters($filters);
-        
-        // RELATIONAL FILTER CHECK: Check if any filter is for relational columns
-        if ($this->hasRelationalFilters($validFilters)) {
-            \Log::warning("⚠️  Relational filters detected in Enhanced Architecture", [
-                'relational_filters' => $this->getRelationalFilters($validFilters),
-                'all_filters' => array_keys($validFilters)
-            ]);
-            
-            throw new \Exception("Enhanced Architecture doesn't support relational filters. Fallback to Legacy required.");
-        }
-        
-        $this->appliedFilters = $validFilters;
-        
+
+        // Split into relational dot-notation filters and simple filters
+        $relationalFilters = [];
+        $simpleFilters = [];
         foreach ($validFilters as $column => $value) {
+            if (is_string($column) && strpos($column, '.') !== false) {
+                [$relation, $field] = explode('.', $column, 2);
+                if ($relation && $field) {
+                    $relationalFilters[$relation][$field] = $value;
+                    continue;
+                }
+            }
+            $simpleFilters[$column] = $value;
+        }
+
+        $this->appliedFilters = $validFilters;
+
+        // Apply simple filters
+        foreach ($simpleFilters as $column => $value) {
             $this->applyFilter($column, $value);
+        }
+
+        // Apply relational filters using whereHas on Eloquent relations
+        if (!empty($relationalFilters) && $this->dataSource instanceof EloquentBuilder) {
+            foreach ($relationalFilters as $relation => $criteria) {
+                $this->dataSource->whereHas($relation, function ($q) use ($criteria) {
+                    foreach ($criteria as $field => $val) {
+                        if (is_array($val)) {
+                            $flat = $this->flattenAndSanitizeArray($val);
+                            if (!empty($flat)) { $q->whereIn($field, $flat); }
+                        } else {
+                            $san = $this->sanitizeFilterValue($val);
+                            if ($san !== null && $san !== '') { $q->where($field, 'LIKE', "%{$san}%"); }
+                        }
+                    }
+                });
+            }
         }
 
         // Reset filtered count for recalculation
@@ -298,7 +326,8 @@ class DataProvider implements DataProviderInterface
         \Log::info("🔍 Filters applied", [
             'original_count' => count($filters),
             'valid_count' => count($validFilters),
-            'excluded_count' => count($filters) - count($validFilters),
+            'relational_relations' => array_keys($relationalFilters),
+            'simple_count' => count($simpleFilters),
             'valid_filters' => $validFilters
         ]);
 
@@ -358,7 +387,9 @@ class DataProvider implements DataProviderInterface
             'draw', 'columns', 'order', 'start', 'length', 'search',
             'renderDataTables', 'difta', '_token', '_', 'method',
             'data', 'action', 'submit', 'submit_button', 'filters',
-            'filterDataTables'
+            'filterDataTables',
+            // CRITICAL FIX: Configuration metadata should not be database filters
+            'declared_relations', 'dot_columns'
         ];
         
         $validFilters = [];
@@ -976,5 +1007,85 @@ class DataProvider implements DataProviderInterface
         }
 
         return 'string';
+    }
+
+    /**
+     * Apply custom relationships from config
+     * 
+     * @param array $customColumns Custom relationship columns configuration
+     * @return void
+     */
+    private function applyCustomRelationships(array $customColumns): void
+    {
+        $appliedJoins = []; // Track applied joins to avoid duplicates
+        
+        foreach ($customColumns as $alias => $config) {
+            if (!isset($config['select']) || !isset($config['joins'])) {
+                continue;
+            }
+
+            // Add select for the custom column
+            $selectClause = $config['select'] . ' as ' . $alias;
+            try {
+                if (method_exists($this->dataSource, 'addSelect')) {
+                    $this->dataSource->addSelect([$selectClause]);
+                } else if (method_exists($this->dataSource, 'selectRaw')) {
+                    $this->dataSource->selectRaw($selectClause);
+                }
+            } catch (\Throwable $e) {
+                \Log::warning("Failed to add select for custom relationship", [
+                    'alias' => $alias,
+                    'select' => $config['select'],
+                    'error' => $e->getMessage()
+                ]);
+                continue;
+            }
+
+            // Apply joins (avoid duplicates)
+            foreach ($config['joins'] as $join) {
+                if (!isset($join['type'], $join['table'], $join['first'], $join['operator'], $join['second'])) {
+                    continue;
+                }
+
+                // Create unique join key to avoid duplicates
+                $joinKey = $join['table'] . '|' . $join['first'] . '|' . $join['operator'] . '|' . $join['second'];
+                if (isset($appliedJoins[$joinKey])) {
+                    continue; // Skip duplicate join
+                }
+
+                try {
+                    $joinType = strtolower($join['type']);
+                    switch ($joinType) {
+                        case 'left':
+                            $this->dataSource->leftJoin($join['table'], $join['first'], $join['operator'], $join['second']);
+                            break;
+                        case 'right':
+                            $this->dataSource->rightJoin($join['table'], $join['first'], $join['operator'], $join['second']);
+                            break;
+                        case 'inner':
+                        case 'join':
+                            $this->dataSource->join($join['table'], $join['first'], $join['operator'], $join['second']);
+                            break;
+                        default:
+                            $this->dataSource->leftJoin($join['table'], $join['first'], $join['operator'], $join['second']);
+                    }
+                    
+                    $appliedJoins[$joinKey] = true; // Mark as applied
+                    
+                } catch (\Throwable $e) {
+                    \Log::warning("Failed to apply join for custom relationship", [
+                        'alias' => $alias,
+                        'join' => $join,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+        }
+
+        \Log::info("✅ Custom relationships applied", [
+            'columns_count' => count($customColumns),
+            'columns' => array_keys($customColumns),
+            'unique_joins_applied' => count($appliedJoins)
+        ]);
     }
 }

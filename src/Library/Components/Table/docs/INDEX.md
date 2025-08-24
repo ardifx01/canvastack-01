@@ -15,7 +15,8 @@ Welcome to the comprehensive documentation for the Incodiy Table Component. This
 
 ### 🔧 Technical Documentation
 - **[DATA_PROVIDERS_CONFIGURATION_GUIDE.md](DATA_PROVIDERS_CONFIGURATION_GUIDE.md)** - **NEW!** Complete guide for config/data-providers.php (optional configuration file)
-- **[LAST DEVELOPMENT PROGRESS 3.md](LAST%20DEVELOPMENT%20PROGRESS%203.md)** - **LATEST!** v2.0.0 Zero-Configuration achievement - comprehensive development journey
+- **[LAST DEVELOPMENT PROGRESS 4.md](LAST%20DEVELOPMENT%20PROGRESS%204.md)** - **LATEST!** v2.0.3 Critical Issues Analysis & Dynamic Solutions - comprehensive session documentation
+- **[LAST DEVELOPMENT PROGRESS 3.md](LAST%20DEVELOPMENT%20PROGRESS%203.md)** - v2.0.0 Zero-Configuration achievement - comprehensive development journey
 - **[DEVELOPMENT_SUMMARY_AND_NEXT_ENHANCEMENTS.md](DEVELOPMENT_SUMMARY_AND_NEXT_ENHANCEMENTS.md)** - Complete development history, fixes, and future roadmap
 - **[ISSUE_ANALYSIS.md](ISSUE_ANALYSIS.md)** - Analysis of GET vs POST filtering issues and solutions
 - **[COMPLETE_ANALYSIS_SUMMARY.md](COMPLETE_ANALYSIS_SUMMARY.md)** - In-depth technical analysis
@@ -37,11 +38,12 @@ Welcome to the comprehensive documentation for the Incodiy Table Component. This
 3. Explore [FEATURES_DOCUMENTATION.md](FEATURES_DOCUMENTATION.md) for examples
 
 ### For Developers
-1. Check [LAST DEVELOPMENT PROGRESS 3.md](LAST%20DEVELOPMENT%20PROGRESS%203.md) for latest v2.3.0 zero-configuration achievements
-2. Review [DATA_PROVIDERS_CONFIGURATION_GUIDE.md](DATA_PROVIDERS_CONFIGURATION_GUIDE.md) for configuration guidance (when needed)
-3. Read [FEATURES_DOCUMENTATION.md](FEATURES_DOCUMENTATION.md) for complete feature list  
-4. Reference [API_REFERENCE.md](API_REFERENCE.md) for method details
-5. Review [COMPLETE_ANALYSIS_SUMMARY.md](COMPLETE_ANALYSIS_SUMMARY.md) for technical analysis
+1. Check [LAST DEVELOPMENT PROGRESS 4.md](LAST%20DEVELOPMENT%20PROGRESS%204.md) for latest v2.0.3 critical issues analysis and dynamic solutions
+2. Review [LAST DEVELOPMENT PROGRESS 3.md](LAST%20DEVELOPMENT%20PROGRESS%203.md) for v2.3.0 zero-configuration achievements
+3. Review [DATA_PROVIDERS_CONFIGURATION_GUIDE.md](DATA_PROVIDERS_CONFIGURATION_GUIDE.md) for configuration guidance (when needed)
+4. Read [FEATURES_DOCUMENTATION.md](FEATURES_DOCUMENTATION.md) for complete feature list  
+5. Reference [API_REFERENCE.md](API_REFERENCE.md) for method details
+6. Review [COMPLETE_ANALYSIS_SUMMARY.md](COMPLETE_ANALYSIS_SUMMARY.md) for technical analysis
 
 ### For Troubleshooting
 1. Review [ISSUE_ANALYSIS.md](ISSUE_ANALYSIS.md) for known issues
@@ -141,17 +143,24 @@ Welcome to the comprehensive documentation for the Incodiy Table Component. This
 4. **Custom Formatting** - Create custom column formatters
 
 ### Advanced Level
-1. **Zero-Configuration Achievement** - Review [LAST DEVELOPMENT PROGRESS 3.md](LAST%20DEVELOPMENT%20PROGRESS%203.md) for v2.3.0 implementation journey
-2. **Configuration Mastery** - Master [DATA_PROVIDERS_CONFIGURATION_GUIDE.md](DATA_PROVIDERS_CONFIGURATION_GUIDE.md) for edge cases and optimization
-3. **Technical Analysis** - Study [COMPLETE_ANALYSIS_SUMMARY.md](COMPLETE_ANALYSIS_SUMMARY.md)
-4. **Custom Features** - Extend with custom functionality using intelligent auto-discovery
-5. **Performance** - Optimize for large datasets with smart caching and column selection
+1. **Critical Issues Analysis** - Review [LAST DEVELOPMENT PROGRESS 4.md](LAST%20DEVELOPMENT%20PROGRESS%204.md) for v2.0.3 column ambiguity and dynamic solutions
+2. **Zero-Configuration Achievement** - Review [LAST DEVELOPMENT PROGRESS 3.md](LAST%20DEVELOPMENT%20PROGRESS%203.md) for v2.3.0 implementation journey
+3. **Configuration Mastery** - Master [DATA_PROVIDERS_CONFIGURATION_GUIDE.md](DATA_PROVIDERS_CONFIGURATION_GUIDE.md) for edge cases and optimization
+4. **Technical Analysis** - Study [COMPLETE_ANALYSIS_SUMMARY.md](COMPLETE_ANALYSIS_SUMMARY.md)
+5. **Custom Features** - Extend with custom functionality using intelligent auto-discovery
+6. **Performance** - Optimize for large datasets with smart caching and column selection
 
 ---
 
 ## 📋 Version-Specific Documentation
 
-### Current Version (v2.0.2) - Join Guard, Action Merge, Search UI
+### Current Version (v2.0.3) - Critical Issues Analysis & Dynamic Solutions
+- **Issues**: SQLSTATE[1052] Column 'active' ambiguity in ORDER BY clauses, dependent filters showing undefined values
+- **Solution**: Dynamic column qualification system with schema-based auto-detection
+- **Status**: Issues documented and dynamic solution implemented, but execution integration pending
+- **Impact**: Critical DataTables functionality affected, requires immediate resolution
+
+### Previous Version (v2.0.2) - Join Guard, Action Merge, Search UI
 - **Fix**: Duplicate JOIN guard to prevent MySQL "Not unique table/alias" during filters combining relationship fields.
 - **Fix**: Action list merge warning resolved by assigning variables before merge.
 - **Hardening**: Search UI chained-select index safety (normalized fieldsets, guarded indexes).
@@ -244,20 +253,27 @@ We welcome contributions to improve our documentation:
 
 ---
 
-*This documentation index is maintained by the Incodiy development team and updated with each release. Last updated: December 17, 2024 - v2.3.0 (Zero-Configuration & Auto-Discovery)*
+*This documentation index is maintained by the Incodiy development team and updated with each release. Last updated: June 5, 2024 - v2.0.3 (Critical Issues Analysis & Dynamic Solutions)*
 
-## ✅ **CURRENT STATUS NOTICE**
+## 🚨 **CURRENT STATUS NOTICE**
 
-**System Status**: ✅ Fully Stable & Enhanced  
+**System Status**: ⚠️ Critical Issues Identified  
 **Zero-Configuration**: ✅ Complete auto-discovery system implemented  
 **View Support**: ✅ Database views work perfectly (no more "Unknown column 'id'" errors)  
 **Performance**: ✅ Intelligent schema detection and smart column selection  
 **Developer Experience**: ✅ Setup time reduced from hours to minutes
 
-**🚀 Achievement**: 90%+ of tables now work with **zero configuration** - just create the Model class!
+**🚨 Critical Issues (v2.0.3)**:
+- **Column Ambiguity**: SQLSTATE[1052] errors in ORDER BY clauses
+- **Filter Processing**: Dependent filters showing undefined values
+- **Status**: Dynamic solution implemented but integration pending
+
+**🚀 Achievement**: 90%+ of tables work with **zero configuration** - just create the Model class!
 
 **📝 Key Feature**: config/data-providers.php is now **completely optional** for most use cases.
 
 For configuration guidance, see: [DATA_PROVIDERS_CONFIGURATION_GUIDE.md](DATA_PROVIDERS_CONFIGURATION_GUIDE.md)
+
+For latest issues analysis, see: [LAST DEVELOPMENT PROGRESS 4.md](LAST%20DEVELOPMENT%20PROGRESS%204.md)
 
 For complete development journey, see: [LAST DEVELOPMENT PROGRESS 3.md](LAST%20DEVELOPMENT%20PROGRESS%203.md)

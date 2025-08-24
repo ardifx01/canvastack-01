@@ -49,11 +49,36 @@ trait ModelInitializerTrait
             throw new \InvalidArgumentException('Missing required difta configuration in method. Available keys: ' . implode(', ', array_keys((array)$method)));
         }
 
-        if (empty($data->datatables->model[$diftaName])) {
-            throw new \InvalidArgumentException("Model configuration not found for: {$diftaName}. Available models: " . implode(', ', array_keys((array)($data->datatables->model ?? []))));
+        // Special handling for temp tables (DynamicTables)
+        if (strpos($diftaName, 'temp_') === 0) {
+            \Log::info("🔧 Detected temp table, creating DynamicTables configuration", [
+                'table_name' => $diftaName
+            ]);
+            
+            // Create a synthetic model config for temp tables
+            $modelConfig = [
+                'table_name' => $diftaName,
+                'type' => 'string_table',
+                'source' => $diftaName, // Table name as source
+                'columns' => $method['columns'] ?? [],
+                'searchable' => $method['searchable'] ?? [],
+                'sortable' => $method['sortable'] ?? true,
+                'clickable' => $method['clickable'] ?? true,
+                'primary_key' => $this->detectTempTablePrimaryKey($diftaName), // Detect primary key
+                'no_id_column' => true // Flag to indicate this table doesn't use 'id' column
+            ];
+            
+            \Log::info("✅ Created synthetic config for temp table", [
+                'table_name' => $diftaName,
+                'columns' => $modelConfig['columns']
+            ]);
+        } else {
+            // Regular model lookup
+            if (empty($data->datatables->model[$diftaName])) {
+                throw new \InvalidArgumentException("Model configuration not found for: {$diftaName}. Available models: " . implode(', ', array_keys((array)($data->datatables->model ?? []))));
+            }
+            $modelConfig = $data->datatables->model[$diftaName];
         }
-
-        $modelConfig = $data->datatables->model[$diftaName];
 
         // Universal Data Source Detection via class helper
         $dataSource = $this->detectDataSource($modelConfig);
@@ -61,5 +86,20 @@ trait ModelInitializerTrait
 
         // Create model via class helper
         return $this->createModelFromSource($dataSource);
+    }
+
+    /**
+     * Detect primary key for temp tables based on table name
+     */
+    private function detectTempTablePrimaryKey($tableName)
+    {
+        // Known temp table primary keys
+        $tempTableKeys = [
+            'temp_user_never_login' => 'user_id',
+            'temp_montly_activity' => 'user_id',
+            'temp_monthly_activity' => 'user_id',
+        ];
+
+        return $tempTableKeys[$tableName] ?? 'id'; // Default to 'id' if not found
     }
 }

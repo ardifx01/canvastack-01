@@ -60,7 +60,7 @@ class Controller extends BaseController {
 	public $connection;
 	
 	private $plugins     = [];
-	private $model_class = null;
+	protected $model_class = null; // Changed to protected for child access
 	
 	/**
 	 * Constructor
@@ -101,10 +101,141 @@ class Controller extends BaseController {
 	
 	private function dataCollections() {
 		$this->components();
+		$this->autoInjectModelToComponents(); // Auto-inject model after components initialized
 		$this->getHiddenFields();
 		$this->getExcludeFields();
 		
 		$this->setDataValues('content_page', []);
+	}
+	
+	/**
+	 * Auto-inject model class to components that need it
+	 * This eliminates the need for manual setup calls across components
+	 * 
+	 * Phase 2: Extended Component Integration
+	 * Phase 3: Advanced Features with Relationship Auto-Discovery
+	 */
+	private function autoInjectModelToComponents() {
+		if (!empty($this->model_class)) {
+			// Auto-inject to Table component if it exists
+			if (isset($this->table)) {
+				$this->table->model($this->model_class);
+				
+				// Phase 3: Auto-discover and setup common relationships
+				$this->autoDiscoverRelationships();
+				
+				\Log::debug("🔧 Auto-injected model to Table component", [
+					'model' => $this->model_class,
+					'component' => 'table',
+					'auto_discovery' => 'enabled'
+				]);
+			}
+			
+			// Auto-inject to Form component if it exists
+			if (isset($this->form)) {
+				// Form component expects model instance, not class string
+				// Skip auto-injection for Form as it requires more context (routes, etc.)
+				// Form models are typically set manually in create/edit methods
+				\Log::debug("ℹ️ Skipping Form auto-injection (requires manual setup)", [
+					'model' => $this->model_class,
+					'component' => 'form',
+					'reason' => 'Form requires route context and specific model instances'
+				]);
+			}
+			
+			// Chart component doesn't need model auto-injection (data-driven)
+			// Email component doesn't need model auto-injection (template-driven)
+		}
+	}
+	
+	/**
+	 * Phase 3: Auto-discover common relationships for the model
+	 * This reduces boilerplate for standard relationships like user->group
+	 * 
+	 * Performance Optimized: Uses static cache and lazy loading
+	 */
+	private function autoDiscoverRelationships() {
+		if (!isset($this->table) || empty($this->model_class)) {
+			return;
+		}
+		
+		// Performance optimization: Use static cache for discovered relationships
+		static $relationshipCache = [];
+		$cacheKey = $this->model_class;
+		
+		if (isset($relationshipCache[$cacheKey])) {
+			$discoveredRelations = $relationshipCache[$cacheKey];
+			\Log::debug("🚀 Using cached relationship discovery", [
+				'model' => $this->model_class,
+				'cached_relations' => array_keys($discoveredRelations)
+			]);
+		} else {
+			try {
+				// Lazy loading: Only create model instance when needed
+				$modelName = class_basename($this->model_class);
+				$discoveredRelations = [];
+				
+				// User model: auto-discover group relationship
+				if ($modelName === 'User') {
+					// Check if method exists without instantiating (performance optimization)
+					if (method_exists($this->model_class, 'group')) {
+						$discoveredRelations['group'] = [
+							'method' => 'group',
+							'columns' => ['group_info', 'group_name', 'group_alias'],
+							'key_relations' => [
+								'base_user_group.user_id' => 'users.id',
+								'base_group.id' => 'base_user_group.group_id'
+							]
+						];
+					}
+				}
+				
+				// Cache the results for future use
+				$relationshipCache[$cacheKey] = $discoveredRelations;
+				
+			} catch (\Throwable $e) {
+				\Log::warning("⚠️ Failed to auto-discover relationships", [
+					'model' => $this->model_class,
+					'error' => $e->getMessage()
+				]);
+				return;
+			}
+		}
+		
+		// Apply discovered relationships
+		foreach ($discoveredRelations as $relation => $config) {
+			// Lazy instantiation: Only create model when actually applying relationships
+			if (!empty($discoveredRelations)) {
+				try {
+					$modelInstance = new $this->model_class();
+					
+					// Setup relationship with key relations if provided
+					if (isset($config['key_relations'])) {
+						foreach ($config['columns'] as $column) {
+							$this->table->relations($modelInstance, $relation, $column, $config['key_relations']);
+						}
+					}
+					
+					// Enable the relationship
+					$this->table->useRelation($relation);
+					
+					\Log::debug("🔍 Auto-discovered relationship", [
+						'model' => $this->model_class,
+						'relation' => $relation,
+						'columns' => $config['columns'],
+						'performance' => 'optimized'
+					]);
+					
+					break; // Only instantiate once for all relationships
+				} catch (\Throwable $e) {
+					\Log::warning("⚠️ Failed to apply auto-discovered relationship", [
+						'model' => $this->model_class,
+						'relation' => $relation,
+						'error' => $e->getMessage()
+					]);
+				}
+			}
+		}
 	}
 	
 	/**

@@ -64,22 +64,31 @@ class UserController extends Controller {
 		}
 		// ⭐ USING GET METHOD FOR FILTERING COMPATIBILITY (Like LogController)
 		// $this->table->setMethod('POST'); // DISABLED to avoid CSRF issues
-		// $this->table->setSecureMode(); // DISABLED for GET compatibility
+		$this->table->setSecureMode(); // DISABLED for GET compatibility
+		// ⭐ CONSISTENT COLUMN NAMING: Use flat names (without dots) for searchable
 		$this->table->searchable(['username','email','group_info','group_name']);
 		$this->table->clickable();
 		$this->table->sortable();
 		
+		$this->table->setHiddenColumns([]);
+
 		// ⭐ ENABLE RELATIONS for group.info and group.name columns
 		$this->table->relations($this->model, 'group', 'group_info', self::key_relations());
 		$this->table->relations($this->model, 'group', 'group_name', self::key_relations());
 		$this->table->useRelation('group');
 
+		// ⭐ CONSISTENT FILTER NAMING: Use flat names (without dots) for filters
 		$this->table->filterGroups('username', 'selectbox', true);
 		$this->table->filterGroups('group_info', 'selectbox', true);
-		$this->table->orderby('id', 'DESC');
+		$this->table->orderby('users.id', 'DESC');
 		
-		// ⭐ USE DOT NOTATION for relation columns
-		$this->table->lists($this->model_table, ['username:User', 'email', 'group_info', 'group_name', 'address', 'phone', 'expire_date', 'active']);
+		// ⭐ MODEL AUTO-INJECTED from constructor - no manual setup needed!
+		// $this->table->model($this->model_class); // ← REMOVED: Auto-injected by parent constructor
+		
+		// ⭐ CONSISTENT COLUMN LISTING: Use flat names to match response data structure
+		// ⭐ QUALIFIED COLUMNS: Specify table prefix for base table columns to avoid ambiguity
+		// ⭐ AUTO-RESOLUTION: Use null for table_name to let system auto-resolve from model
+		$this->table->lists(null, ['username:User', 'email', 'group_info:Group Info', 'group_name:Group Name', 'address', 'phone', 'expire_date', 'active:Active']);
 		
 		return $this->render();
 	}

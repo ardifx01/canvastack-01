@@ -56,7 +56,20 @@ trait View {
 		
 		$tableElements = [];
 		if (!empty($this->data['components']->table->elements)) {
+			\Log::debug("🔧 RENDERING TABLE ELEMENTS", [
+				'table_elements_exist' => !empty($this->data['components']->table->elements),
+				'table_elements_count' => count($this->data['components']->table->elements ?? [])
+			]);
 			$tableElements = $this->table->render($this->data['components']->table->elements);
+			\Log::debug("✅ TABLE ELEMENTS RENDERED", [
+				'table_elements_count' => count($tableElements),
+				'table_elements_keys' => array_keys($tableElements)
+			]);
+		} else {
+			\Log::debug("❌ NO TABLE ELEMENTS TO RENDER", [
+				'components_table_exists' => !empty($this->data['components']->table),
+				'table_elements_exists' => !empty($this->data['components']->table->elements ?? null)
+			]);
 		}
 		
 		// CoDIY Development Chart
@@ -167,6 +180,8 @@ trait View {
 		} else {
 			$this->data['breadcrumbs'] = null;
 			$this->data['route_info']  = null;
+			// ⭐ STILL SET CONTENT_PAGE even if module not granted
+			$this->data['content_page'] = array_merge($formElements, $tableElements, $chartElements);
 		}
 		
 		if (empty($this->session['id'])) {

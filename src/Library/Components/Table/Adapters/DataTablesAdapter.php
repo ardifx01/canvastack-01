@@ -4,6 +4,9 @@ namespace Incodiy\Codiy\Library\Components\Table\Adapters;
 
 use Incodiy\Codiy\Library\Components\Table\Contracts\DataProviderInterface;
 use Incodiy\Codiy\Library\Components\Table\Contracts\DataResponse;
+use Incodiy\Codiy\Library\Components\Table\Support\Diagnostics;
+use Incodiy\Codiy\Library\Components\Table\Support\ResultFinalizer;
+use Incodiy\Codiy\Library\Components\Table\Support\Guarded;
 
 /**
  * DataTablesAdapter
@@ -73,6 +76,9 @@ class DataTablesAdapter
         ]);
         
         try {
+            // Merge runtime-declared relations and dot columns for Enhanced path via helper
+            $requestConfig = \Incodiy\Codiy\Library\Components\Table\Support\RuntimeContextMerger::merge($requestConfig);
+
             // Extract request parameters
             $filters = $this->extractFilters($requestConfig);
             $sorting = $this->extractSorting($requestConfig);
@@ -91,11 +97,39 @@ class DataTablesAdapter
             
             // Transform to DataTables format
             $formatted = $this->formatForDataTables($dataResponse, $requestConfig);
+
+            // Minimal diagnostics: check dot/relational columns presence (log-only)
+            try {
+                $requestedCols = [];
+                if (isset($requestConfig['columns']) && is_array($requestConfig['columns'])) {
+                    foreach ($requestConfig['columns'] as $col) {
+                        if (is_array($col) && isset($col['data'])) {
+                            $requestedCols[] = $col['data'];
+                        }
+                    }
+                }
+                $firstRow = $formatted['data'][0] ?? [];
+                $resolvedCols = is_array($firstRow) ? array_keys($firstRow) : [];
+                if (Diagnostics::missingRelationalCols($requestedCols, array_fill_keys($resolvedCols, true))) {
+                    \Incodiy\Codiy\Library\Components\Table\Support\TableLog::warning(
+                        'Diagnostics: missing relational columns after formatting',
+                        Diagnostics::report($requestedCols, $resolvedCols)
+                    );
+                }
+            } catch (\Throwable $diagEx) {
+                // swallow diagnostics errors
+            }
             
             // Add action column if configured
             if ($this->shouldAddActionColumn()) {
                 $formatted = $this->addActionColumn($formatted, $dataResponse);
             }
+
+            // Optional finalization preview (no behavior change when not needed)
+            try {
+                [$addedIndex, $finalRows] = ResultFinalizer::finalize($formatted['data'], (bool)($this->config['index_lists'] ?? false));
+                if ($addedIndex) { $formatted['data'] = $finalRows; }
+            } catch (\Throwable $ignored) {}
 
             \Log::info("🎯 DataTables response generated", [
                 'total_records' => $dataResponse->total,
@@ -526,6 +560,9 @@ class DataTablesAdapter
      */
     private function applyRecordTransformations(array $record): array
     {
+        // Flatten BelongsToMany relations (group)
+        $record = $this->processBelongsToManyRelations($record);
+
         // Image processing
         $record = $this->processImageFields($record);
         
@@ -535,6 +572,30 @@ class DataTablesAdapter
         // Status formatting
         $record = $this->processStatusFields($record);
 
+        return $record;
+    }
+
+    /**
+     * Flatten common BelongsToMany relations into comma-separated fields
+     */
+    private function processBelongsToManyRelations(array $record): array
+    {
+        if (isset($record['group']) && is_array($record['group'])) {
+            $names = [];
+            $infos = [];
+            foreach ($record['group'] as $grp) {
+                if (is_array($grp)) {
+                    if (!empty($grp['group_name'])) { $names[] = (string) $grp['group_name']; }
+                    if (!empty($grp['group_info'])) { $infos[] = (string) $grp['group_info']; }
+                }
+            }
+            if (!array_key_exists('group_name', $record)) {
+                $record['group_name'] = implode(', ', array_values(array_unique(array_filter($names, 'strlen'))));
+            }
+            if (!array_key_exists('group_info', $record)) {
+                $record['group_info'] = implode(', ', array_values(array_unique(array_filter($infos, 'strlen'))));
+            }
+        }
         return $record;
     }
 

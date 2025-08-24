@@ -397,7 +397,8 @@ if (!function_exists('diy_table_action_button')) {
 	 * @return string
 	 */
 	function diy_table_action_button($row_data, $field_target = 'id', $current_url, $action, $removed_button = null) {
-		$privileges              = session()->all()['privileges']['role'];
+		$sessionData = session()->all();
+		$privileges = isset($sessionData['privileges']['role']) ? $sessionData['privileges']['role'] : [];
 		$path                    = [];
 		$addActions              = [];
 		$add_path                = false;
@@ -492,7 +493,9 @@ if (!function_exists('diy_table_action_button')) {
 		}
 		
 		// Default Action
-		$urlTarget = $row_data->{$field_target};
+		$urlTarget = isset($row_data->{$field_target}) ? $row_data->{$field_target} : 
+			(isset($row_data->user_id) ? $row_data->user_id : 
+			(isset($row_data->id) ? $row_data->id : 'unknown'));
 		$path['view'] = "{$current_url}/{$urlTarget}";
 		$path['edit'] = "{$current_url}/{$urlTarget}/edit";
 		if (!empty($row_data->deleted_at)) {
@@ -600,7 +603,10 @@ if (!function_exists('create_action_buttons')) {
 			$deletePath            = explode('/', $delete);
 			$deleteFlag            = end($deletePath);
 			$delete_id             = intval($deletePath[count($deletePath)-2]);
-			$deleteURL             = str_replace('@index', '@destroy', diy_current_route()->getActionName());
+			$currentRoute = diy_current_route();
+			$deleteURL = $currentRoute && method_exists($currentRoute, 'getActionName') && $currentRoute->getActionName()
+				? str_replace('@index', '@destroy', $currentRoute->getActionName())
+				: 'DefaultController@destroy';
 			$buttonDeleteAttribute = 'class="btn btn-danger btn-xs" data-toggle="tooltip" data-placement="top" data-original-title="Delete"';
 			$iconDeleteAttribute   = 'fa fa-times';
 			
@@ -610,7 +616,9 @@ if (!function_exists('create_action_buttons')) {
 				$iconDeleteAttribute   = 'fa fa-recycle';
 			}
 			
-			$delete_action      = '<form action="' . action($deleteURL, $delete_id) . '" method="post" class="btn btn_delete" style="padding:0 !important">' . csrf_field() . '<input name="_method" type="hidden" value="DELETE">';
+			// Use direct URL instead of action() to avoid controller resolution issues
+			$deleteActionUrl = $delete; // Use the delete URL directly
+			$delete_action      = '<form action="' . $deleteActionUrl . '" method="post" class="btn btn_delete" style="padding:0 !important">' . csrf_field() . '<input name="_method" type="hidden" value="DELETE">';
 			$buttonDelete       = $delete_action . '<button ' . $buttonDeleteAttribute . ' type="submit"><i class="' . $iconDeleteAttribute . '"></i></button></form>';
 			$buttonDeleteMobile = '<li><a href="' . $delete . '" class="tooltip-error btn_delete" data-rel="tooltip" title="Delete"><span class="red"><i class="fa fa-trash-o bigger-120"></i></span></a></li>';
 		}

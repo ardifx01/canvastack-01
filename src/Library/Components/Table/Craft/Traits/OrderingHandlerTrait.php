@@ -24,7 +24,10 @@ trait OrderingHandlerTrait
                         if (!empty($joins) && method_exists($this, 'applyRelationJoins')) { $this->applyRelationJoins($q, $joins); }
                         $q->orderBy($qualified, $direction);
                     } else {
-                        $q->orderBy($column, $direction);
+                        // Add table prefix for base table columns to avoid ambiguity
+                        $baseTable = method_exists($q, 'from') ? $q->from : (property_exists($q, 'from') ? $q->from : '');
+                        $qualified = (!empty($baseTable) && false === strpos($column, '.')) ? "{$baseTable}.{$column}" : $column;
+                        $q->orderBy($qualified, $direction);
                     }
                 });
             }
@@ -83,6 +86,11 @@ trait OrderingHandlerTrait
                                 }
                             }
                         }
+                    }
+
+                    // 3) Fallback: Add table prefix for base table columns to avoid ambiguity
+                    if ($qualified === $columnName && !empty($baseTable) && false === strpos($qualified, '.')) {
+                        $qualified = "{$baseTable}.{$columnName}";
                     }
 
                     $q->orderBy($qualified, $direction);

@@ -859,13 +859,15 @@ if (!function_exists('diy_log_activity')) {
 						$logs['user_group_info'] = $sessions['group_info'];
 						
 						if (empty($routeInfo)) {
-							$logs['route_path']  = $routes->controller->data['route_info']->current_path;
-							$logs['module_name'] = $routes->controller->data['route_info']->module_name;
-							$logs['page_info']   = $routes->controller->data['route_info']->page_info;
+							// Safe access with null checks
+							$routeData = $routes->controller->data['route_info'] ?? null;
+							$logs['route_path']  = $routeData->current_path ?? 'unknown';
+							$logs['module_name'] = $routeData->module_name ?? 'unknown';
+							$logs['page_info']   = $routeData->page_info ?? 'unknown';
 						} else {
-							$logs['route_path']  = $routeInfo['current_path'];
-							$logs['module_name'] = $routeInfo['module_name'];
-							$logs['page_info']   = $routeInfo['page_info'];
+							$logs['route_path']  = $routeInfo['current_path'] ?? 'unknown';
+							$logs['module_name'] = $routeInfo['module_name'] ?? 'unknown';
+							$logs['page_info']   = $routeInfo['page_info'] ?? 'unknown';
 						}
 						$logs['urli']            = $requests::fullUrl();
 						$logs['method']          = $requests::method();

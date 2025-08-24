@@ -134,7 +134,28 @@ class DynamicTables extends Model {
 	 * Get table name - required for DataTables processing
 	 */
 	public function getTable() {
-		return $this->table ?? 'dynamic_table';
+		// CRITICAL FIX: Return actual table name if set, otherwise try to detect from context
+		if (!empty($this->table)) {
+			return $this->table;
+		}
+		
+		// Try to get from query builder if available
+		if ($this->queryBuilder) {
+			try {
+				$sql = $this->queryBuilder->toSql();
+				$tableName = diy_get_table_name_from_sql($sql);
+				if ($tableName && $tableName !== 'dynamic_table') {
+					$this->table = $tableName; // Cache it
+					return $tableName;
+				}
+			} catch (\Exception $e) {
+				\Log::warning("Could not extract table name from query builder: " . $e->getMessage());
+			}
+		}
+		
+		// Emergency fallback - but log warning
+		\Log::warning("⚠️  DynamicTables using fallback table name 'dynamic_table' - this may cause errors");
+		return 'dynamic_table';
 	}
 	
 	/**
